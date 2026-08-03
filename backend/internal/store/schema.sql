@@ -51,20 +51,26 @@ CREATE TABLE IF NOT EXISTS votes (
 
 CREATE INDEX IF NOT EXISTS idx_votes_participant ON votes (participant_id);
 
--- One Jira Cloud connection per room. Tokens are encrypted at rest (AES-256-GCM).
-CREATE TABLE IF NOT EXISTS jira_connections (
-    room_id       TEXT PRIMARY KEY REFERENCES rooms (id) ON DELETE CASCADE,
-    auth_type     TEXT NOT NULL DEFAULT 'oauth' CHECK (auth_type IN ('oauth', 'token')),
-    cloud_id      TEXT NOT NULL,
-    site_url      TEXT NOT NULL,
-    site_name     TEXT NOT NULL DEFAULT '',
-    account_email TEXT NOT NULL DEFAULT '',
-    access_token  BLOB NOT NULL,
-    refresh_token BLOB,
-    expires_at    INTEGER NOT NULL,
-    created_at    INTEGER NOT NULL,
-    updated_at    INTEGER NOT NULL
+-- One tracker connection per room: Jira, Azure Boards or GitHub. Credentials
+-- are encrypted at rest (AES-256-GCM) and are deleted at expires_at, which is
+-- set a short window after connecting rather than when the tracker says so.
+CREATE TABLE IF NOT EXISTS source_connections (
+    room_id          TEXT PRIMARY KEY REFERENCES rooms (id) ON DELETE CASCADE,
+    provider         TEXT NOT NULL CHECK (provider IN ('jira', 'azure', 'github')),
+    auth_type        TEXT NOT NULL CHECK (auth_type IN ('oauth', 'token')),
+    base_url         TEXT NOT NULL DEFAULT '',
+    cloud_id         TEXT NOT NULL DEFAULT '',
+    display_name     TEXT NOT NULL DEFAULT '',
+    account          TEXT NOT NULL DEFAULT '',
+    access_token     BLOB NOT NULL,
+    refresh_token    BLOB,
+    token_expires_at INTEGER NOT NULL,
+    expires_at       INTEGER NOT NULL,
+    created_at       INTEGER NOT NULL,
+    updated_at       INTEGER NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_source_connections_expiry ON source_connections (expires_at);
 
 -- Short-lived CSRF state for the OAuth 2.0 authorization-code flow.
 CREATE TABLE IF NOT EXISTS oauth_states (

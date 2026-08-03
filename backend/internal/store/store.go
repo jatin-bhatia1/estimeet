@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -59,38 +60,20 @@ func Open(path string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
-// migrate adds columns that were introduced after a database was first created.
-// CREATE TABLE IF NOT EXISTS in schema.sql only helps fresh installs, so every
-// later column has to be added here as well. Additions are idempotent.
+// migrate applies the changes that CREATE TABLE IF NOT EXISTS cannot make to a
+// database created by an earlier version. It is idempotent.
 func migrate(db *sql.DB) error {
-	additions := []struct{ table, column, definition string }{
-		{"jira_connections", "auth_type", "TEXT NOT NULL DEFAULT 'oauth'"},
-		{"jira_connections", "account_email", "TEXT NOT NULL DEFAULT ''"},
-	}
-	for _, a := range additions {
-		present, err := hasColumn(db, a.table, a.column)
-		if err != nil {
-			return err
-		}
-		if present {
-			continue
-		}
-		// The identifiers are compile-time constants, never user input.
-		stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", a.table, a.column, a.definition)
-		if _, err := db.Exec(stmt); err != nil {
-			return fmt.Errorf("add column %s.%s: %w", a.table, a.column, err)
-		}
+	// jira_connections was replaced by source_connections. Its rows are stale
+	// credentials, and they are dropped rather than migrated: nothing in there
+	// was ever meant to outlive a session.
+	if _, err := db.Exec(`DELETE FROM jira_connections`); err != nil && !missingTable(err) {
+		return fmt.Errorf("clear jira_connections: %w", err)
 	}
 	return nil
 }
 
-func hasColumn(db *sql.DB, table, column string) (bool, error) {
-	var count int
-	err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?", table, column).Scan(&count)
-	if err != nil {
-		return false, fmt.Errorf("inspect %s: %w", table, err)
-	}
-	return count > 0, nil
+func missingTable(err error) bool {
+	return strings.Contains(err.Error(), "no such table")
 }
 
 // Close releases the database handle.

@@ -19,6 +19,7 @@ import (
 	"github.com/jatin-bhatia1/estimeet/backend/internal/hub"
 	"github.com/jatin-bhatia1/estimeet/backend/internal/jira"
 	"github.com/jatin-bhatia1/estimeet/backend/internal/secretbox"
+	"github.com/jatin-bhatia1/estimeet/backend/internal/source"
 	"github.com/jatin-bhatia1/estimeet/backend/internal/store"
 )
 
@@ -35,16 +36,25 @@ const (
 
 // Service is the application façade used by the HTTP layer.
 type Service struct {
-	store *store.Store
-	hub   *hub.Hub
-	box   *secretbox.Box
-	jira  *jira.Client
-	now   func() time.Time
+	store   *store.Store
+	hub     *hub.Hub
+	box     *secretbox.Box
+	jira    *jira.Client
+	sources *source.Registry
+	now     func() time.Time
 }
 
-// New wires the service. jiraClient may be nil when Jira is not configured.
+// New wires the service. jiraClient may be nil, which drops Jira from the list
+// of trackers a room can import from.
 func New(st *store.Store, h *hub.Hub, box *secretbox.Box, jiraClient *jira.Client) *Service {
-	return &Service{store: st, hub: h, box: box, jira: jiraClient, now: func() time.Time { return time.Now().UTC() }}
+	return &Service{
+		store:   st,
+		hub:     h,
+		box:     box,
+		jira:    jiraClient,
+		sources: source.NewRegistry(jiraClient),
+		now:     func() time.Time { return time.Now().UTC() },
+	}
 }
 
 // Hub exposes the event hub to the WebSocket handler.

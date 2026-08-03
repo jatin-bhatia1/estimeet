@@ -19,6 +19,10 @@ type Config struct {
 	Secret         string
 	LogLevel       slog.Level
 	Jira           JiraConfig
+	// ContactEmail is shown in the footer. It stays empty unless an operator opts
+	// in, so a public deployment never leaks an address by accident.
+	ContactEmail string
+	IssuesURL    string
 }
 
 // JiraConfig holds the Jira Cloud OAuth 2.0 (3LO) application credentials.
@@ -43,6 +47,8 @@ func Load() (Config, error) {
 		StaticDir:      env("ESTIMEET_STATIC_DIR", ""),
 		Secret:         env("ESTIMEET_SECRET", ""),
 		LogLevel:       parseLevel(env("ESTIMEET_LOG_LEVEL", "info")),
+		ContactEmail:   env("ESTIMEET_CONTACT_EMAIL", ""),
+		IssuesURL:      env("ESTIMEET_ISSUES_URL", "https://github.com/jatin-bhatia1/estimeet/issues"),
 		Jira: JiraConfig{
 			ClientID:     env("JIRA_CLIENT_ID", ""),
 			ClientSecret: env("JIRA_CLIENT_SECRET", ""),

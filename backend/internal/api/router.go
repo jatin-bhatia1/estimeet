@@ -44,8 +44,9 @@ func NewRouter(cfg config.Config, svc *service.Service) http.Handler {
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "jira": svc.JiraAvailable(), "jiraOauth": svc.JiraOAuthAvailable()})
+			writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 		})
+		r.Get("/config", s.handleAppConfig)
 
 		r.With(joinLimiter.middleware).Post("/rooms", s.handleCreateRoom)
 		r.Get("/rooms/{code}", s.handleRoomSummary)
@@ -78,13 +79,15 @@ func NewRouter(cfg config.Config, svc *service.Service) http.Handler {
 			r.Post("/rooms/{code}/topics/{topicId}/estimate", s.handleEstimate)
 			r.Post("/rooms/{code}/current", s.handleSetCurrent)
 
+			// Jira's OAuth flow is the one connection that is not a pasted token.
 			r.Post("/rooms/{code}/jira/connect", s.handleJiraConnect)
-			r.Post("/rooms/{code}/jira/token", s.handleJiraTokenConnect)
-			r.Delete("/rooms/{code}/jira", s.handleJiraDisconnect)
-			r.Get("/rooms/{code}/jira/projects", s.handleJiraProjects)
-			r.Get("/rooms/{code}/jira/epics", s.handleJiraEpics)
-			r.Get("/rooms/{code}/jira/epics/{epicKey}/issues", s.handleJiraEpicIssues)
-			r.Post("/rooms/{code}/jira/import", s.handleJiraImport)
+
+			r.Post("/rooms/{code}/source", s.handleSourceConnect)
+			r.Delete("/rooms/{code}/source", s.handleSourceDisconnect)
+			r.Get("/rooms/{code}/source/containers", s.handleSourceContainers)
+			r.Get("/rooms/{code}/source/groups", s.handleSourceGroups)
+			r.Get("/rooms/{code}/source/items", s.handleSourceItems)
+			r.Post("/rooms/{code}/source/import", s.handleSourceImport)
 		})
 	})
 

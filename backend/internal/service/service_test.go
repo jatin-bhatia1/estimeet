@@ -253,8 +253,9 @@ func TestOnlyHostCanRevealResetAndEstimate(t *testing.T) {
 	if _, err := svc.AddTopics(context.Background(), player, []service.TopicInput{{Title: "Sneaky"}}); !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("addTopics err = %v, want ErrForbidden", err)
 	}
-	if err := svc.ConnectJiraToken(context.Background(), player, "https://acme.atlassian.net", "a@b.c", "x"); !errors.Is(err, domain.ErrForbidden) {
-		t.Fatalf("connectJiraToken err = %v, want ErrForbidden", err)
+	connect := service.ConnectSourceInput{Provider: "jira", BaseURL: "https://acme.atlassian.net", Account: "a@b.c", Token: "x"}
+	if err := svc.ConnectSource(context.Background(), player, connect); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("connectSource err = %v, want ErrForbidden", err)
 	}
 }
 

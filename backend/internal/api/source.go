@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/jatin-bhatia1/estimeet/backend/internal/service"
 )
 
 func (s *server) handleJiraConnect(w http.ResponseWriter, r *http.Request) {
@@ -17,31 +17,36 @@ func (s *server) handleJiraConnect(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"authorizeUrl": authURL})
 }
 
-type jiraTokenConnectRequest struct {
-	SiteURL  string `json:"siteUrl"`
-	Email    string `json:"email"`
-	APIToken string `json:"apiToken"`
+type sourceConnectRequest struct {
+	Provider string `json:"provider"`
+	BaseURL  string `json:"baseUrl"`
+	Account  string `json:"account"`
+	Token    string `json:"token"`
 }
 
-// handleJiraTokenConnect links a room with an Atlassian account email and API
-// token, for teams that cannot register an OAuth app.
-func (s *server) handleJiraTokenConnect(w http.ResponseWriter, r *http.Request) {
+// handleSourceConnect links a room to a tracker with a personal access token.
+func (s *server) handleSourceConnect(w http.ResponseWriter, r *http.Request) {
 	sess, _ := sessionFrom(r.Context())
-	var req jiraTokenConnectRequest
+	var req sourceConnectRequest
 	if err := decodeJSON(w, r, &req); err != nil {
 		writeError(w, r, err)
 		return
 	}
-	if err := s.svc.ConnectJiraToken(r.Context(), sess, req.SiteURL, req.Email, req.APIToken); err != nil {
+	if err := s.svc.ConnectSource(r.Context(), sess, service.ConnectSourceInput{
+		Provider: req.Provider,
+		BaseURL:  req.BaseURL,
+		Account:  req.Account,
+		Token:    req.Token,
+	}); err != nil {
 		writeError(w, r, err)
 		return
 	}
 	s.respondState(w, r, sess)
 }
 
-func (s *server) handleJiraDisconnect(w http.ResponseWriter, r *http.Request) {
+func (s *server) handleSourceDisconnect(w http.ResponseWriter, r *http.Request) {
 	sess, _ := sessionFrom(r.Context())
-	if err := s.svc.DisconnectJira(r.Context(), sess); err != nil {
+	if err := s.svc.DisconnectSource(r.Context(), sess); err != nil {
 		writeError(w, r, err)
 		return
 	}
@@ -87,49 +92,52 @@ func (s *server) redirectToApp(w http.ResponseWriter, r *http.Request, roomCode,
 	http.Redirect(w, r, target+"?"+q.Encode(), http.StatusFound)
 }
 
-func (s *server) handleJiraProjects(w http.ResponseWriter, r *http.Request) {
+func (s *server) handleSourceContainers(w http.ResponseWriter, r *http.Request) {
 	sess, _ := sessionFrom(r.Context())
-	projects, err := s.svc.JiraProjects(r.Context(), sess, r.URL.Query().Get("query"))
+	containers, err := s.svc.SourceContainers(r.Context(), sess, r.URL.Query().Get("query"))
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"projects": projects})
+	writeJSON(w, http.StatusOK, map[string]any{"containers": containers})
 }
 
-func (s *server) handleJiraEpics(w http.ResponseWriter, r *http.Request) {
+func (s *server) handleSourceGroups(w http.ResponseWriter, r *http.Request) {
 	sess, _ := sessionFrom(r.Context())
 	q := r.URL.Query()
-	epics, err := s.svc.JiraEpics(r.Context(), sess, q.Get("project"), q.Get("query"))
+	groups, err := s.svc.SourceGroups(r.Context(), sess, q.Get("container"), q.Get("query"))
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"epics": epics})
+	writeJSON(w, http.StatusOK, map[string]any{"groups": groups})
 }
 
-func (s *server) handleJiraEpicIssues(w http.ResponseWriter, r *http.Request) {
+func (s *server) handleSourceItems(w http.ResponseWriter, r *http.Request) {
 	sess, _ := sessionFrom(r.Context())
-	issues, err := s.svc.JiraEpicIssues(r.Context(), sess, chi.URLParam(r, "epicKey"))
+	q := r.URL.Query()
+	items, err := s.svc.SourceItems(r.Context(), sess, q.Get("container"), q.Get("group"))
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"issues": issues})
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
-type jiraImportRequest struct {
-	Keys []string `json:"keys"`
+type sourceImportRequest struct {
+	Container string   `json:"container"`
+	Group     string   `json:"group"`
+	Keys      []string `json:"keys"`
 }
 
-func (s *server) handleJiraImport(w http.ResponseWriter, r *http.Request) {
+func (s *server) handleSourceImport(w http.ResponseWriter, r *http.Request) {
 	sess, _ := sessionFrom(r.Context())
-	var req jiraImportRequest
+	var req sourceImportRequest
 	if err := decodeJSON(w, r, &req); err != nil {
 		writeError(w, r, err)
 		return
 	}
-	result, err := s.svc.ImportJiraIssues(r.Context(), sess, req.Keys)
+	result, err := s.svc.ImportSourceItems(r.Context(), sess, req.Container, req.Group, req.Keys)
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -140,4 +148,16 @@ func (s *server) handleJiraImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"result": result, "state": state})
+}
+
+// handleAppConfig serves the handful of settings the UI needs before it knows
+// anything about a room: which trackers exist, and where to reach the author.
+func (s *server) handleAppConfig(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"sources":            s.svc.Sources(),
+		"jiraOauthAvailable": s.svc.JiraOAuthAvailable(),
+		"contactEmail":       s.cfg.ContactEmail,
+		"issuesUrl":          s.cfg.IssuesURL,
+		"credentialTtlHours": int(service.CredentialTTL.Hours()),
+	})
 }

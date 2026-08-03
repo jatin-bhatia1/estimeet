@@ -18,15 +18,23 @@ type RoomView struct {
 	AutoReveal     bool        `json:"autoReveal"`
 	Closed         bool        `json:"closed"`
 	CreatedAt      time.Time   `json:"createdAt"`
-	// JiraAvailable means the room can connect to Jira at all; JiraOAuthAvailable
-	// additionally means this server has an Atlassian OAuth app registered.
-	JiraAvailable      bool   `json:"jiraAvailable"`
-	JiraOAuthAvailable bool   `json:"jiraOauthAvailable"`
-	JiraConnected      bool   `json:"jiraConnected"`
-	JiraAuthType       string `json:"jiraAuthType,omitempty"`
-	JiraAccountEmail   string `json:"jiraAccountEmail,omitempty"`
-	JiraSiteName       string `json:"jiraSiteName,omitempty"`
-	JiraSiteURL        string `json:"jiraSiteUrl,omitempty"`
+	// JiraOAuthAvailable means this server has an Atlassian OAuth app registered,
+	// which adds "Connect with Atlassian" next to the token form.
+	JiraOAuthAvailable bool `json:"jiraOauthAvailable"`
+	// Source is the room's backlog connection, absent until a host makes one.
+	Source *SourceView `json:"source,omitempty"`
+}
+
+// SourceView describes a live tracker connection without exposing anything
+// secret about it.
+type SourceView struct {
+	Provider string `json:"provider"`
+	AuthType string `json:"authType"`
+	Name     string `json:"name"`
+	Account  string `json:"account,omitempty"`
+	// ExpiresAt is when the credentials are deleted, shown so the host is never
+	// surprised by an import that suddenly asks them to reconnect.
+	ExpiresAt time.Time `json:"expiresAt"`
 }
 
 // ParticipantView adds presence and progress to a participant.
@@ -129,8 +137,8 @@ func (s *Service) State(ctx context.Context, roomID, participantID string) (Room
 			CurrentTopicID: room.CurrentTopicID,
 			AutoReveal:     room.AutoReveal,
 			Closed:         room.ClosedAt != nil,
-			CreatedAt:          room.CreatedAt,
-			JiraAvailable:      s.JiraAvailable(),
+			CreatedAt:      room.CreatedAt,
+
 			JiraOAuthAvailable: s.JiraOAuthAvailable(),
 		},
 		Participants: make([]ParticipantView, 0, len(participants)),
@@ -138,13 +146,15 @@ func (s *Service) State(ctx context.Context, roomID, participantID string) (Room
 		ServerTime:   s.now(),
 	}
 
-	// A missing Jira connection is the normal case, so the error is ignored here.
-	if conn, _, _, err := s.store.RawJiraConnection(ctx, room.ID); err == nil {
-		state.Room.JiraConnected = true
-		state.Room.JiraAuthType = conn.AuthType
-		state.Room.JiraAccountEmail = conn.AccountEmail
-		state.Room.JiraSiteName = conn.SiteName
-		state.Room.JiraSiteURL = conn.SiteURL
+	// Having no connection is the normal case, so the error is ignored here.
+	if conn, _, _, err := s.store.RawSourceConnection(ctx, room.ID, s.now()); err == nil {
+		state.Room.Source = &SourceView{
+			Provider:  conn.Provider,
+			AuthType:  conn.AuthType,
+			Name:      conn.Name,
+			Account:   conn.Account,
+			ExpiresAt: conn.ExpiresAt,
+		}
 	}
 
 	var totalPoints float64

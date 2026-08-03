@@ -11,6 +11,7 @@ import (
 	"github.com/jatin-bhatia1/estimeet/backend/internal/domain"
 	"github.com/jatin-bhatia1/estimeet/backend/internal/jira"
 	"github.com/jatin-bhatia1/estimeet/backend/internal/service"
+	"github.com/jatin-bhatia1/estimeet/backend/internal/source"
 )
 
 const maxRequestBytes = 1 << 20 // 1 MiB
@@ -42,11 +43,17 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		writeJSON(w, http.StatusConflict, errorBody{Error: publicMessage(err, "conflict")})
 	case errors.Is(err, domain.ErrInvalid):
 		writeJSON(w, http.StatusBadRequest, errorBody{Error: publicMessage(err, "invalid request")})
-	case errors.Is(err, service.ErrJiraDisabled):
+	case errors.Is(err, service.ErrJiraOAuthDisabled):
 		writeJSON(w, http.StatusNotImplemented, errorBody{Error: err.Error()})
-	case errors.Is(err, service.ErrJiraNotConnected):
+	case errors.Is(err, service.ErrNotConnected):
 		writeJSON(w, http.StatusPreconditionFailed, errorBody{Error: err.Error()})
 	default:
+		var srcErr *source.Error
+		if errors.As(err, &srcErr) {
+			slog.Warn("tracker upstream error", "provider", srcErr.Kind, "status", srcErr.Status, "detail", srcErr.Detail)
+			writeJSON(w, http.StatusBadGateway, errorBody{Error: string(srcErr.Kind) + " rejected the request: " + srcErr.Detail})
+			return
+		}
 		var apiErr *jira.APIError
 		if errors.As(err, &apiErr) {
 			slog.Warn("jira upstream error", "status", apiErr.StatusCode, "detail", apiErr.Detail)

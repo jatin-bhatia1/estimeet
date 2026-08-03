@@ -67,6 +67,8 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	go purgeCredentials(ctx, svc)
+
 	errCh := make(chan error, 1)
 	go func() {
 		slog.Info("estimeet api listening", "addr", cfg.Addr, "db", cfg.DBPath)
@@ -85,4 +87,29 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// purgeCredentials deletes tracker credentials once they are past their
+// retention window or their room has closed. Rooms are long-lived and imports
+// are not, so this runs on a timer rather than waiting for someone to come back
+// and disconnect by hand.
+func purgeCredentials(ctx context.Context, svc *service.Service) {
+	ticker := time.NewTicker(15 * time.Minute)
+	defer ticker.Stop()
+	for {
+		purgeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		n, err := svc.PurgeExpiredCredentials(purgeCtx)
+		cancel()
+		switch {
+		case err != nil:
+			slog.Warn("credential purge failed", "error", err)
+		case n > 0:
+			slog.Info("forgot expired tracker credentials", "connections", n)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
