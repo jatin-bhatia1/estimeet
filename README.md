@@ -101,8 +101,8 @@ backend/
   internal/service      application rules (permissions, voting, auto-reveal)
   internal/hub          per-room WebSocket registry and fan-out
   internal/api          HTTP routes, middleware, WebSocket handler
-  internal/jira         Jira Cloud OAuth 2.0 (3LO) + REST wrapper
-  internal/secretbox    AES-256-GCM for Jira tokens at rest
+  internal/jira         Jira Cloud REST wrapper + OAuth 2.0 (3LO)
+  internal/secretbox    AES-256-GCM for Jira credentials at rest
 frontend/
   src/lib               API client, session storage, socket hook, types
   src/components        deck, boards, panels
@@ -124,7 +124,7 @@ go run ./cmd/server
 ```
 
 ```
-level=INFO msg="jira integration disabled (set JIRA_CLIENT_ID, JIRA_CLIENT_SECRET, JIRA_REDIRECT_URI to enable)"
+level=INFO msg="jira oauth disabled, api-token connections still available (set JIRA_CLIENT_ID, JIRA_CLIENT_SECRET, JIRA_REDIRECT_URI to enable)"
 level=INFO msg="estimeet api listening" addr=:8090 db=data/estimeet.db
 ```
 
@@ -201,10 +201,10 @@ so the app runs with none of them set.
 | `ESTIMEET_ALLOWED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Comma-separated CORS **and** WebSocket origin allowlist. |
 | `ESTIMEET_APP_BASE_URL` | `http://localhost:5173` | Where the Jira callback sends the browser back to. |
 | `ESTIMEET_STATIC_DIR` | *(empty)* | Point at the built UI to serve it from the Go binary. |
-| `ESTIMEET_SECRET` | dev fallback | Key for encrypting Jira tokens. **Required** when `ESTIMEET_ENV=production`; minimum 16 characters. |
+| `ESTIMEET_SECRET` | dev fallback | Key for encrypting Jira credentials. **Required** when `ESTIMEET_ENV=production`; minimum 16 characters. |
 | `ESTIMEET_ENV` | `development` | `production` makes `ESTIMEET_SECRET` mandatory. |
 | `ESTIMEET_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`. |
-| `JIRA_CLIENT_ID` | — | The Jira panel appears only when all three Jira variables are set. |
+| `JIRA_CLIENT_ID` | — | Optional. Adds **Connect with Atlassian** (OAuth) next to the API-token form; all three are needed. |
 | `JIRA_CLIENT_SECRET` | — | |
 | `JIRA_REDIRECT_URI` | `http://localhost:8090/api/jira/callback` | Must match the Atlassian app registration exactly. |
 
@@ -274,7 +274,26 @@ pwsh ./scripts/smoke.ps1
 
 ## Jira Cloud (optional)
 
-Estimeet can pull the stories of an epic straight into the backlog.
+Estimeet can pull the stories of an epic straight into the backlog. The host opens the **Jira** panel
+inside a room and connects in one of two ways.
+
+### API token (no server configuration)
+
+This works out of the box, on any deployment.
+
+1. Create a token at <https://id.atlassian.com/manage-profile/security/api-tokens>.
+2. In the room, click **Connect to Jira** and fill in:
+   - **Site** — `https://your-site.atlassian.net` (only `*.atlassian.net` sites are accepted, over HTTPS)
+   - **Email** — the Atlassian account the token belongs to
+   - **API token** — the value from step 1
+3. The credentials are verified against the site before anything is stored.
+
+The token inherits the permissions of that account, so imports see exactly the issues that person can see.
+
+### OAuth 2.0 (3LO)
+
+Nicer for shared deployments: each host approves the app with their own Atlassian login, and no token
+has to be pasted around.
 
 1. Create an **OAuth 2.0 (3LO)** app at <https://developer.atlassian.com/console/myapps/>.
 2. Add the **Jira API** permission with scopes `read:jira-work`, `read:jira-user` and `offline_access`.
@@ -290,12 +309,16 @@ Estimeet can pull the stories of an epic straight into the backlog.
    go run ./cmd/server
    ```
 
-The host then opens the **Jira** panel inside a room, clicks **Connect**, approves the Atlassian consent
-screen, and picks a project → epic → the issues to import. Re-importing the same epic skips issues that
-are already in the backlog, so it is safe to run again after grooming.
+**Connect with Atlassian** then appears in the connect dialog alongside the API-token form.
 
-Access and refresh tokens are encrypted with `ESTIMEET_SECRET` before they touch the database, the
-authorization flow uses PKCE (S256), and the `state` value is single-use.
+### Importing
+
+Once connected, narrow by project, search for the epic by name or key, tick the stories you want and
+import. Re-importing the same epic skips issues that are already in the backlog, so it is safe to run
+again after grooming.
+
+API tokens, access tokens and refresh tokens are all encrypted with `ESTIMEET_SECRET` before they touch
+the database, the OAuth flow uses PKCE (S256), and the `state` value is single-use.
 
 ## How the rules work
 

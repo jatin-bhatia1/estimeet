@@ -91,9 +91,11 @@ type Room struct {
 // Participant is somebody who joined a room. Authentication is a bearer token
 // handed out at join time; only its hash is persisted.
 type Participant struct {
-	ID         string    `json:"id"`
-	RoomID     string    `json:"-"`
-	Name       string    `json:"name"`
+	ID     string `json:"id"`
+	RoomID string `json:"-"`
+	Name   string `json:"name"`
+	// IsHost is granted once, to whoever created the session, and is never
+	// transferred. Only the host may reveal cards or change the backlog.
 	IsHost     bool      `json:"isHost"`
 	IsObserver bool      `json:"isObserver"`
 	JoinedAt   time.Time `json:"joinedAt"`

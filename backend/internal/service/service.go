@@ -50,9 +50,6 @@ func New(st *store.Store, h *hub.Hub, box *secretbox.Box, jiraClient *jira.Clien
 // Hub exposes the event hub to the WebSocket handler.
 func (s *Service) Hub() *hub.Hub { return s.hub }
 
-// JiraEnabled reports whether the Jira integration is configured.
-func (s *Service) JiraEnabled() bool { return s.jira != nil }
-
 // ------------------------------------------------------------------ auth
 
 // Session pairs an authenticated participant with their room.
@@ -104,14 +101,15 @@ type CreateRoomInput struct {
 	AutoReveal *bool
 }
 
-// CreatedRoom is returned once, and carries the host's bearer token.
+// CreatedRoom is returned once, and carries the new participant's bearer token.
 type CreatedRoom struct {
 	Room  domain.Room
 	Host  domain.Participant
 	Token string
 }
 
-// CreateRoom opens a room and seats its host.
+// CreateRoom opens a room and seats its host. The creator is the only
+// participant who ever holds that role: it is never transferred or shared.
 func (s *Service) CreateRoom(ctx context.Context, in CreateRoomInput) (CreatedRoom, error) {
 	name := clean(in.Name, MaxRoomNameLen)
 	hostName := clean(in.HostName, MaxDisplayNameLen)
