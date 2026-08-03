@@ -234,6 +234,13 @@ func TestOnlyHostCanRevealResetAndEstimate(t *testing.T) {
 	topics := addTopics(t, svc, host, "Login")
 	player := join(t, svc, host.Room.Code, "Linus", false)
 
+	if !host.Participant.IsHost {
+		t.Fatal("the creator of a room must be its host")
+	}
+	if player.Participant.IsHost {
+		t.Fatal("joining a room must never grant the host role")
+	}
+
 	if err := svc.RevealTopic(context.Background(), player, topics[0].ID); !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("reveal err = %v, want ErrForbidden", err)
 	}
@@ -245,6 +252,9 @@ func TestOnlyHostCanRevealResetAndEstimate(t *testing.T) {
 	}
 	if _, err := svc.AddTopics(context.Background(), player, []service.TopicInput{{Title: "Sneaky"}}); !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("addTopics err = %v, want ErrForbidden", err)
+	}
+	if err := svc.ConnectJiraToken(context.Background(), player, "https://acme.atlassian.net", "a@b.c", "x"); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("connectJiraToken err = %v, want ErrForbidden", err)
 	}
 }
 

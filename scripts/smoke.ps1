@@ -51,11 +51,11 @@ $sync = Call POST '/rooms' $null @{ name = 'Smoke sync'; mode = 'sync'; hostName
 $syncCode = $sync.roomCode
 $hostToken = $sync.token
 Check 'room created with a 6 character code' ($syncCode.Length -eq 6)
-Check 'host is flagged as host' ($sync.participant.isHost -eq $true)
+Check 'the creator is flagged as host' ($sync.participant.isHost -eq $true)
 
 $player = Call POST "/rooms/$syncCode/join" $null @{ name = 'Linus'; asObserver = $false }
 $playerToken = $player.token
-Check 'second player joined' ($player.participant.isHost -eq $false)
+Check 'a player who joins is not a host' ($player.participant.isHost -eq $false)
 
 Check 'duplicate display name is rejected' `
     ((StatusOf POST "/rooms/$syncCode/join" $null @{ name = 'linus'; asObserver = $false }) -eq 409)
@@ -72,7 +72,7 @@ Check 'sync room auto-focuses the first topic' ($state.room.currentTopicId -eq $
 $first = $state.topics[0].id
 $second = $state.topics[1].id
 
-Check 'non-host cannot add topics' `
+Check 'a non-host cannot add topics' `
     ((StatusOf POST "/rooms/$syncCode/topics" $playerToken @{ topics = @(@{ title = 'Sneaky'; description = '' }) }) -eq 403)
 
 Check 'a card outside the deck is rejected' `
@@ -93,6 +93,9 @@ Check 'reveal exposes both cards' ($topic.votes.Count -eq 2)
 Check 'statistics are computed' ($topic.stats.average -eq 9)
 Check 'suggestion falls on a Fibonacci card' ($topic.stats.suggested -eq '8')
 
+Check 'a non-host cannot reveal' `
+    ((StatusOf POST "/rooms/$syncCode/topics/$second/reveal" $playerToken $null) -eq 403)
+
 Check 'a non-numeric final estimate is rejected' `
     ((StatusOf POST "/rooms/$syncCode/topics/$first/estimate" $hostToken @{ value = '?' }) -eq 400)
 
@@ -102,7 +105,16 @@ Check 'topic is estimated' ($topic.status -eq 'estimated' -and $topic.finalEstim
 Check 'total points are summed' ($state.summary.totalPoints -eq 8)
 
 $state = Call POST "/rooms/$syncCode/current" $hostToken @{ direction = 'next' }
-Check 'host can advance to the next topic' ($state.room.currentTopicId -eq $second)
+Check 'the host can advance to the next topic' ($state.room.currentTopicId -eq $second)
+
+# --- jira --------------------------------------------------------------------
+Write-Host "`nJira" -ForegroundColor Yellow
+Check 'a non Jira Cloud site is rejected' `
+    ((StatusOf POST "/rooms/$syncCode/jira/token" $hostToken @{ siteUrl = 'http://169.254.169.254'; email = 'a@b.c'; apiToken = 'x' }) -eq 400)
+Check 'a look-alike host is rejected' `
+    ((StatusOf POST "/rooms/$syncCode/jira/token" $hostToken @{ siteUrl = 'https://evil.atlassian.net.attacker.example'; email = 'a@b.c'; apiToken = 'x' }) -eq 400)
+Check 'a non-host cannot connect Jira' `
+    ((StatusOf POST "/rooms/$syncCode/jira/token" $playerToken @{ siteUrl = 'https://demo.atlassian.net'; email = 'a@b.c'; apiToken = 'x' }) -eq 403)
 
 # --- asynchronous room -------------------------------------------------------
 Write-Host "`nAsynchronous mode" -ForegroundColor Yellow
