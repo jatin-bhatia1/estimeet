@@ -125,6 +125,17 @@ Check 'browsing without a connection is refused' `
 $config = Call GET '/config' $null
 Check 'the server advertises three backlog sources' ($config.sources.Count -eq 3)
 Check 'credentials are kept for a day at most' ($config.credentialTtlHours -eq 24)
+Check 'sessions are kept at least two weeks' ($config.roomRetentionDays -ge 14)
+
+# --- expected roster ---------------------------------------------------------
+Write-Host "`nExpected roster" -ForegroundColor Yellow
+$rostered = Call PUT "/rooms/$syncCode/roster" $hostToken @{ size = 2; names = @(' Ada ', 'ada', 'Rex') }
+Check 'duplicate and blank names are folded away' ($rostered.room.expectedNames.Count -eq 2)
+Check 'the headcount grows to fit the names' ($rostered.room.expectedSize -eq 2)
+Check 'a non-host cannot set the roster' `
+    ((StatusOf PUT "/rooms/$syncCode/roster" $playerToken @{ size = 5; names = @() }) -eq 403)
+Check 'an absurd headcount is rejected' `
+    ((StatusOf PUT "/rooms/$syncCode/roster" $hostToken @{ size = 10000; names = @() }) -eq 400)
 
 # --- asynchronous room -------------------------------------------------------
 Write-Host "`nAsynchronous mode" -ForegroundColor Yellow

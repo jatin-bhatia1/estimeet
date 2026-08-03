@@ -83,6 +83,8 @@ export function SyncBoard({ state, actions }: SyncBoardProps) {
         )}
       </div>
 
+      <AtTheTable state={state} votedBy={topic.votedBy} revealed={topic.revealed} />
+
       {topic.revealed ? (
         <ResultsPanel
           topic={topic}
@@ -132,6 +134,77 @@ export function SyncBoard({ state, actions }: SyncBoardProps) {
             )}
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+interface AtTheTableProps {
+  state: RoomState
+  votedBy: string[]
+  revealed: boolean
+}
+
+/**
+ * AtTheTable shows who has actually joined the live session, so the host does
+ * not have to read the sidebar to know whether the room is complete. When the
+ * host declared a roster, the people still missing are listed as outlines.
+ */
+function AtTheTable({ state, votedBy, revealed }: AtTheTableProps) {
+  const { room, participants } = state
+  const voted = new Set(votedBy)
+  const here = new Set(participants.map((p) => p.name.trim().toLowerCase()))
+  const missing = room.expectedNames.filter((name) => !here.has(name.trim().toLowerCase()))
+  const players = participants.filter((p) => !p.isObserver)
+  const seatsOpen = Math.max(0, room.expectedSize - players.length - missing.length)
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 border-y border-white/5 py-3">
+      <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+        At the table{room.expectedSize > 0 ? ` ${players.length}/${room.expectedSize}` : ''}
+      </span>
+
+      {participants.map((p) => {
+        const played = voted.has(p.id)
+        return (
+          <span
+            key={p.id}
+            className={[
+              'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition',
+              p.online ? '' : 'opacity-50',
+              p.isObserver
+                ? 'border-white/10 bg-white/[0.03] text-slate-400'
+                : played && !revealed
+                  ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200'
+                  : 'border-white/10 bg-white/5 text-slate-300',
+            ].join(' ')}
+            title={
+              p.isObserver
+                ? `${p.name} is observing`
+                : `${p.name} is ${p.online ? 'online' : 'offline'}${revealed ? '' : played ? ' and has played' : ' and is still thinking'}`
+            }
+          >
+            <span className={['h-1.5 w-1.5 rounded-full', p.online ? 'bg-emerald-400' : 'bg-slate-600'].join(' ')} />
+            {p.name}
+            {p.isHost && <span className="text-[10px] uppercase tracking-wide text-slate-500">host</span>}
+          </span>
+        )
+      })}
+
+      {missing.map((name) => (
+        <span
+          key={name}
+          className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-white/10 px-2.5 py-1 text-xs text-slate-500"
+          title={`${name} has not joined yet`}
+        >
+          {name}
+        </span>
+      ))}
+
+      {seatsOpen > 0 && (
+        <span className="rounded-full border border-dashed border-white/10 px-2.5 py-1 text-xs text-slate-600">
+          {seatsOpen} seat{seatsOpen === 1 ? '' : 's'} open
+        </span>
       )}
     </div>
   )

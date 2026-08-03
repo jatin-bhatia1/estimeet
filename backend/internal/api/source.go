@@ -159,5 +159,6 @@ func (s *server) handleAppConfig(w http.ResponseWriter, _ *http.Request) {
 		"contactEmail":       s.cfg.ContactEmail,
 		"issuesUrl":          s.cfg.IssuesURL,
 		"credentialTtlHours": int(service.CredentialTTL.Hours()),
+		"roomRetentionDays":  int(s.cfg.RoomRetention.Hours() / 24),
 	})
 }

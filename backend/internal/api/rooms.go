@@ -118,6 +118,25 @@ func (s *server) handleUpdateRoom(w http.ResponseWriter, r *http.Request) {
 	s.respondState(w, r, sess)
 }
 
+type rosterRequest struct {
+	Size  int      `json:"size"`
+	Names []string `json:"names"`
+}
+
+func (s *server) handleSetRoster(w http.ResponseWriter, r *http.Request) {
+	sess, _ := sessionFrom(r.Context())
+	var req rosterRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, r, err)
+		return
+	}
+	if err := s.svc.SetRoster(r.Context(), sess, req.Size, req.Names); err != nil {
+		writeError(w, r, err)
+		return
+	}
+	s.respondState(w, r, sess)
+}
+
 type updateProfileRequest struct {
 	Name       string `json:"name"`
 	IsObserver bool   `json:"isObserver"`

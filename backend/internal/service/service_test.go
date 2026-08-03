@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/jatin-bhatia1/estimeet/backend/internal/domain"
 	"github.com/jatin-bhatia1/estimeet/backend/internal/hub"
@@ -371,5 +372,57 @@ func TestParticipantsCannotReachAnotherRoom(t *testing.T) {
 	}
 	if _, err := svc.State(context.Background(), roomB.Room.ID, roomA.Participant.ID); !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("err = %v, want ErrForbidden", err)
+	}
+}
+
+func TestSetRosterNormalisesNames(t *testing.T) {
+	svc := newService(t)
+	host := newRoom(t, svc, domain.ModeSync)
+
+	// Blanks and case-insensitive duplicates are folded away, and a headcount
+	// smaller than the list of names is corrected rather than rejected.
+	if err := svc.SetRoster(context.Background(), host, 2, []string{" Ada ", "", "ada", "Jay", "Rex"}); err != nil {
+		t.Fatalf("set roster: %v", err)
+	}
+
+	state, err := svc.State(context.Background(), host.Room.ID, host.Participant.ID)
+	if err != nil {
+		t.Fatalf("state: %v", err)
+	}
+	if got := state.Room.ExpectedNames; len(got) != 3 || got[0] != "Ada" || got[1] != "Jay" || got[2] != "Rex" {
+		t.Fatalf("expected names = %v, want [Ada Jay Rex]", got)
+	}
+	if state.Room.ExpectedSize != 3 {
+		t.Fatalf("expected size = %d, want 3", state.Room.ExpectedSize)
+	}
+}
+
+func TestSetRosterIsHostOnly(t *testing.T) {
+	svc := newService(t)
+	host := newRoom(t, svc, domain.ModeSync)
+	guest := join(t, svc, host.Room.Code, "Jay", false)
+
+	if err := svc.SetRoster(context.Background(), guest, 4, nil); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("err = %v, want ErrForbidden", err)
+	}
+	if err := svc.SetRoster(context.Background(), host, 10_000, nil); !errors.Is(err, domain.ErrInvalid) {
+		t.Fatalf("err = %v, want ErrInvalid for an absurd headcount", err)
+	}
+}
+
+func TestPurgeStaleRoomsKeepsLiveSessions(t *testing.T) {
+	svc := newService(t)
+	host := newRoom(t, svc, domain.ModeSync)
+
+	// The room was created moments ago, so a two-week window must keep it.
+	if n, err := svc.PurgeStaleRooms(context.Background(), 14*24*time.Hour); err != nil || n != 0 {
+		t.Fatalf("purge = %d, %v; want 0, nil", n, err)
+	}
+	// With no retention at all everything is stale, and the room goes.
+	if n, err := svc.PurgeStaleRooms(context.Background(), 0); err != nil || n != 1 {
+		t.Fatalf("purge = %d, %v; want 1, nil", n, err)
+	}
+	if _, err := svc.State(context.Background(), host.Room.ID, host.Participant.ID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound after the purge", err)
 	}
 }

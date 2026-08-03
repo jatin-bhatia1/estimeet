@@ -7,7 +7,11 @@ CREATE TABLE IF NOT EXISTS rooms (
     current_topic_id TEXT,
     auto_reveal      INTEGER NOT NULL DEFAULT 1,
     created_at       INTEGER NOT NULL,
-    closed_at        INTEGER
+    closed_at        INTEGER,
+    -- Optional roster: how many people are expected, and the names the host
+    -- knew in advance. Purely informational, and never a permission.
+    expected_size    INTEGER NOT NULL DEFAULT 0,
+    expected_names   TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS participants (

@@ -89,6 +89,7 @@ export default function RoomPage() {
       deleteTopic: (topicId) => run(() => api.deleteTopic(roomCode, t, topicId)),
       kick: (participantId) => run(() => api.kick(roomCode, t, participantId)),
       updateRoom: (input) => run(() => api.updateRoom(roomCode, t, input)),
+      setRoster: (input) => run(() => api.setRoster(roomCode, t, input)),
       applyState,
     }
   }, [roomCode, token, run, applyState])
@@ -145,7 +146,11 @@ export default function RoomPage() {
         </main>
 
         <aside className="space-y-4">
-          <ParticipantsPanel state={state} onKick={(id) => void actions.kick(id)} />
+          <ParticipantsPanel
+            state={state}
+            onKick={(id) => void actions.kick(id)}
+            onSetRoster={(input) => void actions.setRoster(input)}
+          />
 
           {isSync && (
             <BacklogPanel

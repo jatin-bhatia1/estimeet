@@ -74,6 +74,9 @@ export const api = {
   updateRoom: (code: string, token: string, input: { name: string; autoReveal: boolean }) =>
     request<RoomState>(`/rooms/${encodeURIComponent(code)}`, { method: 'PATCH', token, body: input }),
 
+  setRoster: (code: string, token: string, input: { size: number; names: string[] }) =>
+    request<RoomState>(`/rooms/${encodeURIComponent(code)}/roster`, { method: 'PUT', token, body: input }),
+
   updateProfile: (code: string, token: string, input: { name: string; isObserver: boolean }) =>
     request<RoomState>(`/rooms/${encodeURIComponent(code)}/me`, { method: 'PATCH', token, body: input }),
 

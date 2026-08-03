@@ -13,6 +13,9 @@ export interface RoomView {
   autoReveal: boolean
   closed: boolean
   createdAt: string
+  /** How many people the host expects, and any names they listed in advance. */
+  expectedSize: number
+  expectedNames: string[]
   /** True when this server has an Atlassian OAuth app registered. */
   jiraOauthAvailable: boolean
   /** The room's backlog connection, absent until a host makes one. */
@@ -167,6 +170,7 @@ export interface AppConfig {
   contactEmail: string
   issuesUrl: string
   credentialTtlHours: number
+  roomRetentionDays: number
 }
 
 export interface ImportResult {

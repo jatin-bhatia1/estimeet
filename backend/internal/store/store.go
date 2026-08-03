@@ -69,11 +69,26 @@ func migrate(db *sql.DB) error {
 	if _, err := db.Exec(`DELETE FROM jira_connections`); err != nil && !missingTable(err) {
 		return fmt.Errorf("clear jira_connections: %w", err)
 	}
+
+	// The roster columns were added after the first release, and CREATE TABLE IF
+	// NOT EXISTS leaves an existing rooms table untouched.
+	for _, stmt := range []string{
+		`ALTER TABLE rooms ADD COLUMN expected_size INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE rooms ADD COLUMN expected_names TEXT NOT NULL DEFAULT '[]'`,
+	} {
+		if _, err := db.Exec(stmt); err != nil && !duplicateColumn(err) {
+			return fmt.Errorf("migrate rooms: %w", err)
+		}
+	}
 	return nil
 }
 
 func missingTable(err error) bool {
 	return strings.Contains(err.Error(), "no such table")
+}
+
+func duplicateColumn(err error) bool {
+	return strings.Contains(err.Error(), "duplicate column name")
 }
 
 // Close releases the database handle.

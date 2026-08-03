@@ -68,10 +68,11 @@ func run() error {
 	defer stop()
 
 	go purgeCredentials(ctx, svc)
+	go purgeStaleRooms(ctx, svc, cfg.RoomRetention)
 
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("estimeet api listening", "addr", cfg.Addr, "db", cfg.DBPath)
+		slog.Info("estimeet api listening", "addr", cfg.Addr, "db", cfg.DBPath, "room_retention", cfg.RoomRetention)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -87,6 +88,30 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// purgeStaleRooms deletes sessions nobody has touched for the retention window,
+// together with their participants, topics and votes. Estimates are worth
+// keeping for a sprint or two, not forever.
+func purgeStaleRooms(ctx context.Context, svc *service.Service, retention time.Duration) {
+	ticker := time.NewTicker(6 * time.Hour)
+	defer ticker.Stop()
+	for {
+		purgeCtx, cancel := context.WithTimeout(ctx, time.Minute)
+		n, err := svc.PurgeStaleRooms(purgeCtx, retention)
+		cancel()
+		switch {
+		case err != nil:
+			slog.Warn("room purge failed", "error", err)
+		case n > 0:
+			slog.Info("deleted sessions past the retention window", "rooms", n, "retention", retention)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 // purgeCredentials deletes tracker credentials once they are past their

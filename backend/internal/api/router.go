@@ -64,6 +64,7 @@ func NewRouter(cfg config.Config, svc *service.Service) http.Handler {
 
 			r.Get("/rooms/{code}/state", s.handleState)
 			r.Patch("/rooms/{code}", s.handleUpdateRoom)
+			r.Put("/rooms/{code}/roster", s.handleSetRoster)
 			r.Patch("/rooms/{code}/me", s.handleUpdateProfile)
 			r.Delete("/rooms/{code}/participants/{participantId}", s.handleKickParticipant)
 

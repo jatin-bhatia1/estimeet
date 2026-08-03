@@ -11,7 +11,7 @@ import (
 	"github.com/jatin-bhatia1/estimeet/backend/internal/domain"
 )
 
-const roomColumns = `id, code, name, mode, deck, current_topic_id, auto_reveal, created_at, closed_at`
+const roomColumns = `id, code, name, mode, deck, current_topic_id, auto_reveal, created_at, closed_at, expected_size, expected_names`
 
 // CreateRoom inserts a new room.
 func (s *Store) CreateRoom(ctx context.Context, r domain.Room) error {
@@ -19,10 +19,15 @@ func (s *Store) CreateRoom(ctx context.Context, r domain.Room) error {
 	if err != nil {
 		return fmt.Errorf("marshal deck: %w", err)
 	}
+	names, err := marshalNames(r.ExpectedNames)
+	if err != nil {
+		return err
+	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO rooms (`+roomColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO rooms (`+roomColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.ID, r.Code, r.Name, string(r.Mode), string(deck),
 		nullString(r.CurrentTopicID), r.AutoReveal, toMillis(r.CreatedAt), nullTime(r.ClosedAt),
+		r.ExpectedSize, names,
 	)
 	return err
 }
@@ -41,14 +46,16 @@ func (s *Store) RoomByID(ctx context.Context, id string) (domain.Room, error) {
 
 func (s *Store) scanRoom(row *sql.Row) (domain.Room, error) {
 	var (
-		r        domain.Room
-		mode     string
-		deckJSON string
-		current  sql.NullString
-		created  int64
-		closed   sql.NullInt64
+		r         domain.Room
+		mode      string
+		deckJSON  string
+		current   sql.NullString
+		created   int64
+		closed    sql.NullInt64
+		namesJSON string
 	)
-	err := row.Scan(&r.ID, &r.Code, &r.Name, &mode, &deckJSON, &current, &r.AutoReveal, &created, &closed)
+	err := row.Scan(&r.ID, &r.Code, &r.Name, &mode, &deckJSON, &current, &r.AutoReveal, &created, &closed,
+		&r.ExpectedSize, &namesJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.Room{}, domain.ErrNotFound
 	}
@@ -58,11 +65,54 @@ func (s *Store) scanRoom(row *sql.Row) (domain.Room, error) {
 	if err := json.Unmarshal([]byte(deckJSON), &r.Deck); err != nil {
 		return domain.Room{}, fmt.Errorf("unmarshal deck: %w", err)
 	}
+	if err := json.Unmarshal([]byte(namesJSON), &r.ExpectedNames); err != nil {
+		return domain.Room{}, fmt.Errorf("unmarshal expected names: %w", err)
+	}
 	r.Mode = domain.Mode(mode)
 	r.CurrentTopicID = stringPtr(current)
 	r.CreatedAt = fromMillis(created)
 	r.ClosedAt = timePtr(closed)
 	return r, nil
+}
+
+// SetRoster stores how many people are expected and the names the host listed.
+func (s *Store) SetRoster(ctx context.Context, roomID string, size int, names []string) error {
+	encoded, err := marshalNames(names)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx,
+		`UPDATE rooms SET expected_size = ?, expected_names = ? WHERE id = ?`, size, encoded, roomID)
+	return err
+}
+
+// PurgeStaleRooms deletes rooms nobody has touched since the cutoff. Everything
+// belonging to them goes with them through ON DELETE CASCADE, so a purged
+// session leaves no participants, topics or votes behind.
+func (s *Store) PurgeStaleRooms(ctx context.Context, cutoff time.Time) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `
+		DELETE FROM rooms
+		 WHERE MAX(
+		           created_at,
+		           COALESCE((SELECT MAX(last_seen_at) FROM participants WHERE room_id = rooms.id), 0),
+		           COALESCE((SELECT MAX(created_at) FROM topics WHERE room_id = rooms.id), 0)
+		       ) <= ?`, toMillis(cutoff))
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// marshalNames keeps the stored value a JSON array even when there are no names.
+func marshalNames(names []string) (string, error) {
+	if names == nil {
+		names = []string{}
+	}
+	encoded, err := json.Marshal(names)
+	if err != nil {
+		return "", fmt.Errorf("marshal expected names: %w", err)
+	}
+	return string(encoded), nil
 }
 
 // SetCurrentTopic points a synchronous room at the topic being estimated.

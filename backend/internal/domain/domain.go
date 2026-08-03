@@ -86,6 +86,11 @@ type Room struct {
 	AutoReveal     bool       `json:"autoReveal"`
 	CreatedAt      time.Time  `json:"createdAt"`
 	ClosedAt       *time.Time `json:"closedAt,omitempty"`
+	// ExpectedSize and ExpectedNames are the optional roster: how many people the
+	// host is waiting for, and the names of the ones they could list. Both are
+	// only ever used to say who is missing; they grant nothing.
+	ExpectedSize  int      `json:"expectedSize"`
+	ExpectedNames []string `json:"expectedNames"`
 }
 
 // Participant is somebody who joined a room. Authentication is a bearer token

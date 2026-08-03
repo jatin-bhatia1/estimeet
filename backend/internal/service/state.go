@@ -18,6 +18,9 @@ type RoomView struct {
 	AutoReveal     bool        `json:"autoReveal"`
 	Closed         bool        `json:"closed"`
 	CreatedAt      time.Time   `json:"createdAt"`
+	// ExpectedSize and ExpectedNames are the optional roster the host set.
+	ExpectedSize  int      `json:"expectedSize"`
+	ExpectedNames []string `json:"expectedNames"`
 	// JiraOAuthAvailable means this server has an Atlassian OAuth app registered,
 	// which adds "Connect with Atlassian" next to the token form.
 	JiraOAuthAvailable bool `json:"jiraOauthAvailable"`
@@ -138,6 +141,8 @@ func (s *Service) State(ctx context.Context, roomID, participantID string) (Room
 			AutoReveal:     room.AutoReveal,
 			Closed:         room.ClosedAt != nil,
 			CreatedAt:      room.CreatedAt,
+			ExpectedSize:   room.ExpectedSize,
+			ExpectedNames:  room.ExpectedNames,
 
 			JiraOAuthAvailable: s.JiraOAuthAvailable(),
 		},

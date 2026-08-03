@@ -307,6 +307,50 @@ func (s *Service) UpdateRoomSettings(ctx context.Context, sess Session, name str
 	return nil
 }
 
+// SetRoster records how many people are expected and, optionally, their names,
+// so the room can show who is still missing (host only). An empty roster turns
+// the feature off again.
+func (s *Service) SetRoster(ctx context.Context, sess Session, size int, names []string) error {
+	if err := requireHost(sess); err != nil {
+		return err
+	}
+	if size < 0 || size > MaxPlayersPerRoom {
+		return fmt.Errorf("%w: expect between 0 and %d people", domain.ErrInvalid, MaxPlayersPerRoom)
+	}
+
+	// Names are a memory aid, so near-duplicates are folded rather than refused:
+	// the host is typing a list, not filling in a form.
+	cleaned := make([]string, 0, len(names))
+	seen := make(map[string]bool, len(names))
+	for _, raw := range names {
+		name := clean(raw, MaxDisplayNameLen)
+		key := strings.ToLower(name)
+		if name == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		cleaned = append(cleaned, name)
+		if len(cleaned) == MaxPlayersPerRoom {
+			break
+		}
+	}
+	if len(cleaned) > size {
+		// Listing more names than seats is a typo in the headcount, not an error.
+		size = len(cleaned)
+	}
+
+	if err := s.store.SetRoster(ctx, sess.Room.ID, size, cleaned); err != nil {
+		return err
+	}
+	s.publish(sess.Room.ID, "room.updated", nil)
+	return nil
+}
+
+// PurgeStaleRooms deletes sessions nobody has touched for the retention window.
+func (s *Service) PurgeStaleRooms(ctx context.Context, retention time.Duration) (int64, error) {
+	return s.store.PurgeStaleRooms(ctx, s.now().Add(-retention))
+}
+
 // KickParticipant removes somebody from the room (host only).
 func (s *Service) KickParticipant(ctx context.Context, sess Session, participantID string) error {
 	if err := requireHost(sess); err != nil {

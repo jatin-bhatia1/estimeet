@@ -170,6 +170,24 @@ individually. `.vscode/tasks.json` also has **test: backend**, **build: frontend
 
 Sessions survive a refresh: your token is kept in `localStorage`, and **Leave** clears it.
 
+### Who is expected, and who is here
+
+A host can optionally say how many people are joining and, if they know them, list the names — the
+**+ expected** link next to *Team* in the sidebar. The room then shows `Team (4 of 6)` plus a muted
+*Not here yet* list, and synchronous sessions get an **At the table** strip above the deck showing
+everyone who has joined, green once they have played their card and dimmed while they are offline.
+
+The roster is a memory aid only. Names are matched against display names purely to grey out who is
+missing; they never let anyone in and never keep anyone out.
+
+### How long sessions are kept
+
+A session — its participants, topics, votes and any tracker connection — is deleted once nobody has
+touched it for `ESTIMEET_ROOM_RETENTION_DAYS` (30 by default). The clock runs from the last activity,
+not from when the room was created, so a room in daily use is never removed. The value can be raised,
+but never lowered below two weeks, so a team that estimates in one sprint can still open the session in
+the next. A janitor sweeps every six hours and logs what it removed.
+
 ## Tests and checks
 
 ```powershell
@@ -182,7 +200,7 @@ go test ./...
 cd frontend
 npm run build
 
-# end-to-end: 30 assertions against a running API
+# end-to-end: 44 assertions against a running API
 pwsh ./scripts/smoke.ps1
 ```
 
@@ -206,7 +224,8 @@ so the app runs with none of them set.
 | `ESTIMEET_ENV` | `development` | `production` makes `ESTIMEET_SECRET` mandatory. |
 | `ESTIMEET_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`. |
 | `ESTIMEET_CONTACT_EMAIL` | *(empty)* | Shown in the footer as a mailto link. Left out entirely when unset. |
-| `ESTIMEET_ISSUES_URL` | `https://github.com/jatin-bhatia1/estimeet/issues` | Where the footer's *Open an issue* link points. |
+| `ESTIMEET_ISSUES_URL` | `https://github.com/jatin-bhatia1/estimeet/issues` | Where the footer's *Report a problem* link points. |
+| `ESTIMEET_ROOM_RETENTION_DAYS` | `30` | Days of inactivity before a session and everything in it is deleted. Values below 14 are raised to 14. |
 | `JIRA_CLIENT_ID` | — | Optional. Adds **Connect with Atlassian** (OAuth) next to the API-token form; all three are needed. |
 | `JIRA_CLIENT_SECRET` | — | |
 | `JIRA_REDIRECT_URI` | `http://localhost:8090/api/jira/callback` | Must match the Atlassian app registration exactly. |

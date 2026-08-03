@@ -19,5 +19,6 @@ export interface RoomActions {
   deleteTopic(topicId: string): Promise<void>
   kick(participantId: string): Promise<void>
   updateRoom(input: { name: string; autoReveal: boolean }): Promise<void>
+  setRoster(input: { size: number; names: string[] }): Promise<void>
   applyState(state: RoomState): void
 }

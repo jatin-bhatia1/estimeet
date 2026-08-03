@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config holds every knob the server needs to boot.
@@ -23,7 +24,15 @@ type Config struct {
 	// in, so a public deployment never leaks an address by accident.
 	ContactEmail string
 	IssuesURL    string
+	// RoomRetention is how long an untouched session survives before it is
+	// deleted with everything in it.
+	RoomRetention time.Duration
 }
+
+// MinRoomRetention is the floor for ESTIMEET_ROOM_RETENTION_DAYS. A team that
+// estimates in one sprint and reviews in the next must still find its session,
+// so a shorter window is treated as a misconfiguration and clamped.
+const MinRoomRetention = 14 * 24 * time.Hour
 
 // JiraConfig holds the Jira Cloud OAuth 2.0 (3LO) application credentials.
 type JiraConfig struct {
@@ -68,6 +77,15 @@ func Load() (Config, error) {
 	}
 	if len(cfg.AllowedOrigins) == 0 {
 		return Config{}, fmt.Errorf("ESTIMEET_ALLOWED_ORIGINS must list at least one origin")
+	}
+
+	days, err := strconv.Atoi(env("ESTIMEET_ROOM_RETENTION_DAYS", "30"))
+	if err != nil || days <= 0 {
+		return Config{}, fmt.Errorf("ESTIMEET_ROOM_RETENTION_DAYS must be a positive number of days")
+	}
+	cfg.RoomRetention = time.Duration(days) * 24 * time.Hour
+	if cfg.RoomRetention < MinRoomRetention {
+		cfg.RoomRetention = MinRoomRetention
 	}
 	return cfg, nil
 }
