@@ -22,7 +22,7 @@ export function SyncBoard({ state, actions }: SyncBoardProps) {
       <div className="panel flex min-h-64 items-center justify-center p-8 text-center">
         <p className="text-slate-400">
           {topics.length === 0
-            ? 'The backlog is empty. Add a topic or import a Jira epic to get started.'
+            ? 'The backlog is empty. Add a topic or import from your tracker to get started.'
             : 'The host has not picked a topic yet.'}
         </p>
       </div>

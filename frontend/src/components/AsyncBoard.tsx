@@ -75,7 +75,7 @@ export function AsyncBoard({ state, actions }: AsyncBoardProps) {
       {visible.length === 0 ? (
         <div className="panel p-8 text-center text-sm text-slate-500">
           {topics.length === 0
-            ? 'No topics yet. Add some, or import an epic from Jira.'
+            ? 'No topics yet. Add some, or import them from your tracker.'
             : 'Nothing here — try another filter.'}
         </div>
       ) : (

@@ -3,15 +3,16 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { AsyncBoard } from '../components/AsyncBoard'
 import { BacklogPanel } from '../components/BacklogPanel'
-import { JiraPanel } from '../components/JiraPanel'
 import { ParticipantsPanel } from '../components/ParticipantsPanel'
 import { RoomHeader } from '../components/RoomHeader'
+import { SourcePanel } from '../components/SourcePanel'
 import { SyncBoard } from '../components/SyncBoard'
 import { TopicComposer } from '../components/TopicComposer'
 import { ApiError, api } from '../lib/api'
 import type { RoomActions, TopicDraft } from '../lib/actions'
 import { clearSession, loadSession, recallName, rememberName, saveSession } from '../lib/session'
 import type { RoomState, RoomSummary } from '../lib/types'
+import { useAppConfig } from '../lib/useAppConfig'
 import { useRoomSocket } from '../lib/useRoomSocket'
 
 export default function RoomPage() {
@@ -26,6 +27,7 @@ export default function RoomPage() {
   const { state: liveState, status, applyState } = useRoomSocket(roomCode, token)
   const [fallbackState, setFallbackState] = useState<RoomState | null>(null)
   const state = liveState ?? fallbackState
+  const config = useAppConfig()
 
   const notify = useCallback((text: string, kind: 'info' | 'error' = 'error') => {
     setNotice({ kind, text })
@@ -155,9 +157,10 @@ export default function RoomPage() {
 
           {state.me.isHost && (
             <>
-              <JiraPanel
+              <SourcePanel
                 state={state}
                 token={token}
+                config={config}
                 onImported={(next, imported, skipped) => {
                   applyState(next)
                   if (imported > 0 || skipped.length > 0) {

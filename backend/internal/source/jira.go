@@ -39,7 +39,7 @@ func (p *jiraProvider) Describe() Descriptor {
 				Name:    "token",
 				Label:   "API token",
 				Type:    "password",
-				Help:    "Create one at id.atlassian.com",
+				Help:    "The import sees exactly the issues this account can see.",
 				HelpURL: "https://id.atlassian.com/manage-profile/security/api-tokens",
 			},
 		},

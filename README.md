@@ -3,8 +3,8 @@
 **Fibonacci estimation for your backlog — live in a call, or on your own time.**
 
 Estimeet is a planning-poker app for sizing anything your team needs to estimate. Topics come from a
-Jira epic or from the built-in composer, everyone plays a card from the Fibonacci deck, the cards flip
-together, and the team agrees on a number.
+Jira epic, an Azure DevOps feature, a GitHub milestone or the built-in composer, everyone plays a card
+from the Fibonacci deck, the cards flip together, and the team agrees on a number.
 
 It runs in two modes:
 
@@ -19,7 +19,7 @@ It runs in two modes:
 [Quick start](#quick-start) · [Prerequisites](#prerequisites) · [Stack](#stack) · [Layout](#layout) ·
 [Running it locally](#running-it-locally) · [Using the app](#using-the-app) ·
 [Tests and checks](#tests-and-checks) · [Configuration](#configuration) ·
-[Deploying to estimeet.app](#deploying-to-estimeetapp) · [Jira Cloud](#jira-cloud-optional) ·
+[Deploying to estimeet.app](#deploying-to-estimeetapp) · [Backlog import](#backlog-import-optional) ·
 [How the rules work](#how-the-rules-work) · [Security notes](#security-notes) ·
 [Troubleshooting](#troubleshooting)
 
@@ -102,7 +102,8 @@ backend/
   internal/hub          per-room WebSocket registry and fan-out
   internal/api          HTTP routes, middleware, WebSocket handler
   internal/jira         Jira Cloud REST wrapper + OAuth 2.0 (3LO)
-  internal/secretbox    AES-256-GCM for Jira credentials at rest
+  internal/source       One vocabulary over Jira, Azure DevOps and GitHub
+  internal/secretbox    AES-256-GCM for tracker credentials at rest
 frontend/
   src/lib               API client, session storage, socket hook, types
   src/components        deck, boards, panels
@@ -158,7 +159,7 @@ individually. `.vscode/tasks.json` also has **test: backend**, **build: frontend
    name — no accounts. Anyone who is not estimating can tick **join as an observer**; observers see
    everything but are never counted as a missing vote.
 4. Add topics with the composer in the sidebar — one at a time, or switch to **paste a list** and drop in
-   one title per line. Hosts can also import a Jira epic (see below).
+   one title per line. Hosts can also import from Jira, Azure DevOps or GitHub (see below).
 5. Estimate:
    - *synchronous* — the host drives with the **←** / **→** buttons or by clicking a backlog item;
      everyone plays a card on the current topic.
@@ -201,9 +202,11 @@ so the app runs with none of them set.
 | `ESTIMEET_ALLOWED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Comma-separated CORS **and** WebSocket origin allowlist. |
 | `ESTIMEET_APP_BASE_URL` | `http://localhost:5173` | Where the Jira callback sends the browser back to. |
 | `ESTIMEET_STATIC_DIR` | *(empty)* | Point at the built UI to serve it from the Go binary. |
-| `ESTIMEET_SECRET` | dev fallback | Key for encrypting Jira credentials. **Required** when `ESTIMEET_ENV=production`; minimum 16 characters. |
+| `ESTIMEET_SECRET` | dev fallback | Key for encrypting tracker credentials. **Required** when `ESTIMEET_ENV=production`; minimum 16 characters. |
 | `ESTIMEET_ENV` | `development` | `production` makes `ESTIMEET_SECRET` mandatory. |
 | `ESTIMEET_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`. |
+| `ESTIMEET_CONTACT_EMAIL` | *(empty)* | Shown in the footer as a mailto link. Left out entirely when unset. |
+| `ESTIMEET_ISSUES_URL` | `https://github.com/jatin-bhatia1/estimeet/issues` | Where the footer's *Open an issue* link points. |
 | `JIRA_CLIENT_ID` | — | Optional. Adds **Connect with Atlassian** (OAuth) next to the API-token form; all three are needed. |
 | `JIRA_CLIENT_SECRET` | — | |
 | `JIRA_REDIRECT_URI` | `http://localhost:8090/api/jira/callback` | Must match the Atlassian app registration exactly. |
@@ -272,53 +275,73 @@ $env:ESTIMEET_API_BASE = 'https://estimeet.app/api'
 pwsh ./scripts/smoke.ps1
 ```
 
-## Jira Cloud (optional)
+## Backlog import (optional)
 
-Estimeet can pull the stories of an epic straight into the backlog. The host opens the **Jira** panel
-inside a room and connects in one of two ways.
+Estimeet can pull a backlog straight into the room from **Jira Cloud**, **Azure DevOps** or **GitHub**.
+The host opens the **Backlog import** panel, picks a source and connects with an access token.
 
-### API token (no server configuration)
+Whatever the source, the browsing is the same three steps, and each step is searched rather than
+scrolled, because a real organisation has more projects and repositories than fit in a list:
 
-This works out of the box, on any deployment.
+| Source | Step 1 | Step 2 | Imported as topics |
+| --- | --- | --- | --- |
+| Jira Cloud | Project | Epic | the epic's stories |
+| Azure DevOps | Project | Epic or feature | its child work items |
+| GitHub | Repository | Milestone | the milestone's issues (pull requests excluded) |
 
-1. Create a token at <https://id.atlassian.com/manage-profile/security/api-tokens>.
-2. In the room, click **Connect to Jira** and fill in:
-   - **Site** — `https://your-site.atlassian.net` (only `*.atlassian.net` sites are accepted, over HTTPS)
-   - **Email** — the Atlassian account the token belongs to
-   - **API token** — the value from step 1
-3. The credentials are verified against the site before anything is stored.
-
-The token inherits the permissions of that account, so imports see exactly the issues that person can see.
-
-### OAuth 2.0 (3LO)
-
-Nicer for shared deployments: each host approves the app with their own Atlassian login, and no token
-has to be pasted around.
-
-1. Create an **OAuth 2.0 (3LO)** app at <https://developer.atlassian.com/console/myapps/>.
-2. Add the **Jira API** permission with scopes `read:jira-work`, `read:jira-user` and `offline_access`.
-3. Set the callback URL:
-   - local: `http://localhost:8090/api/jira/callback`
-   - production: `https://estimeet.app/api/jira/callback`
-4. Export the three variables and restart the API:
-
-   ```powershell
-   $env:JIRA_CLIENT_ID     = '...'
-   $env:JIRA_CLIENT_SECRET = '...'
-   $env:JIRA_REDIRECT_URI  = 'http://localhost:8090/api/jira/callback'
-   go run ./cmd/server
-   ```
-
-**Connect with Atlassian** then appears in the connect dialog alongside the API-token form.
-
-### Importing
-
-Once connected, narrow by project, search for the epic by name or key, tick the stories you want and
-import. Re-importing the same epic skips issues that are already in the backlog, so it is safe to run
+Re-importing the same epic or milestone skips what is already in the backlog, so it is safe to run
 again after grooming.
 
-API tokens, access tokens and refresh tokens are all encrypted with `ESTIMEET_SECRET` before they touch
-the database, the OAuth flow uses PKCE (S256), and the `state` value is single-use.
+### Credentials are temporary, on purpose
+
+A token is only needed to fill the backlog at the start of a session, so Estimeet does not keep one:
+
+- it is encrypted with `ESTIMEET_SECRET` (AES-256-GCM) before it touches the database;
+- only the room it was given to can use it, and it is never shown again;
+- it is **deleted 24 hours after it was handed over**, and as soon as the session closes, whichever
+  comes first — a refresh of an OAuth token does not extend that deadline;
+- a background sweep removes expired rows every 15 minutes, and any read past the deadline behaves as
+  if nothing had been stored.
+
+The connect dialog says this before anything is typed, and the panel shows the exact deletion time
+once a room is connected.
+
+### Jira Cloud
+
+1. Create a token at <https://id.atlassian.com/manage-profile/security/api-tokens>.
+2. Fill in the site (`https://your-site.atlassian.net`, HTTPS and `*.atlassian.net` only), the
+   Atlassian account email, and the token.
+
+Alternatively, an operator can register an **OAuth 2.0 (3LO)** app so hosts approve with their own
+Atlassian login instead of pasting a token:
+
+1. Create the app at <https://developer.atlassian.com/console/myapps/>.
+2. Add the **Jira API** permission with scopes `read:jira-work`, `read:jira-user` and `offline_access`.
+3. Set the callback URL — local `http://localhost:8090/api/jira/callback`, production
+   `https://estimeet.app/api/jira/callback`.
+4. Export `JIRA_CLIENT_ID`, `JIRA_CLIENT_SECRET` and `JIRA_REDIRECT_URI`, then restart the API.
+
+**Connect with Atlassian** then appears above the token form. The flow uses PKCE (S256) and the `state`
+value is single-use.
+
+### Azure DevOps
+
+1. Create a personal access token with **Work Items (Read)** at
+   `https://dev.azure.com/{organisation}/_usersSettings/tokens`.
+2. Give Estimeet the organisation — either the bare name, or the `https://dev.azure.com/...` URL you
+   copied from the browser.
+
+### GitHub
+
+1. Create a personal access token with the `repo` scope (or `public_repo` for public repositories only)
+   at <https://github.com/settings/tokens>.
+2. Paste it. The repository list is the one that token can see; typing `owner/name` in the search box
+   also looks the repository up directly, so a repository outside the first hundred is still findable.
+
+Every source inherits the permissions of the account behind the token, so an import sees exactly what
+that person can see. The host-supplied parts of a URL are validated before any request leaves the
+process: only `*.atlassian.net`, `dev.azure.com`/`*.visualstudio.com` organisation names and plain
+`owner/name` repositories are accepted.
 
 ## How the rules work
 
@@ -342,7 +365,10 @@ Fibonacci card to the average). "Vote again" clears the round and reopens the to
 - The WebSocket token travels in `Sec-WebSocket-Protocol`, never in the query string.
 - Unauthenticated endpoints (create room, join room) are rate limited per IP.
 - JSON bodies are capped at 1 MiB and reject unknown fields.
-- JQL values are quoted and escaped before they reach Jira.
+- JQL and WIQL values are quoted and escaped before they reach Jira or Azure DevOps.
+- Tracker credentials are encrypted at rest and deleted 24 hours after they are given, or when the
+  session closes.
+- Upstream error bodies are never echoed back to the browser; only a short, sanitised summary is.
 - The OAuth callback redirects only to the configured `ESTIMEET_APP_BASE_URL`.
 
 ## Troubleshooting

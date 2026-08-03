@@ -83,7 +83,7 @@ func (p *azureProvider) Describe() Descriptor {
 				Name:    "token",
 				Label:   "Personal access token",
 				Type:    "password",
-				Help:    "Create one under User settings → Personal access tokens",
+				Help:    "It needs the Work Items (Read) scope.",
 				HelpURL: "https://dev.azure.com",
 			},
 		},

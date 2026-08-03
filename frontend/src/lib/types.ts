@@ -13,15 +13,19 @@ export interface RoomView {
   autoReveal: boolean
   closed: boolean
   createdAt: string
-  /** True when the room can connect to Jira at all. */
-  jiraAvailable: boolean
   /** True when this server has an Atlassian OAuth app registered. */
   jiraOauthAvailable: boolean
-  jiraConnected: boolean
-  jiraAuthType?: 'oauth' | 'token'
-  jiraAccountEmail?: string
-  jiraSiteName?: string
-  jiraSiteUrl?: string
+  /** The room's backlog connection, absent until a host makes one. */
+  source?: SourceView
+}
+
+export interface SourceView {
+  provider: SourceKind
+  authType: 'oauth' | 'token'
+  name: string
+  account?: string
+  /** When the stored credentials are deleted. */
+  expiresAt: string
 }
 
 export interface ParticipantView {
@@ -117,19 +121,52 @@ export interface RoomSummary {
   closed: boolean
 }
 
-export interface JiraProject {
-  id: string
+export type SourceKind = 'jira' | 'azure' | 'github'
+
+/** A container is a Jira project, an Azure project or a GitHub repository. */
+export interface SourceContainer {
   key: string
   name: string
 }
 
-export interface JiraIssue {
+/** An item is an epic, a milestone, a story or an issue, depending on depth. */
+export interface SourceItem {
   key: string
-  summary: string
-  description: string
-  type: string
-  status: string
-  url: string
+  title: string
+  description?: string
+  type?: string
+  status?: string
+  url?: string
+}
+
+/** SourceField describes one input of a provider's connect form. */
+export interface SourceField {
+  name: 'baseUrl' | 'account' | 'token'
+  label: string
+  placeholder?: string
+  type?: string
+  help?: string
+  helpUrl?: string
+}
+
+export interface SourceDescriptor {
+  kind: SourceKind
+  name: string
+  /** Wording for each level, e.g. "Project" / "Epic" / "stories". */
+  container: string
+  group: string
+  items: string
+  scopes?: string
+  fields: SourceField[]
+}
+
+/** AppConfig is the server-wide settings the UI reads once at start-up. */
+export interface AppConfig {
+  sources: SourceDescriptor[]
+  jiraOauthAvailable: boolean
+  contactEmail: string
+  issuesUrl: string
+  credentialTtlHours: number
 }
 
 export interface ImportResult {

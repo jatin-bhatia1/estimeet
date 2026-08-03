@@ -30,8 +30,8 @@ export default function HomePage() {
           Estimate together, in the room or across time zones.
         </h1>
         <p className="mt-4 max-w-2xl text-slate-400">
-          Fibonacci estimation for any topic your team needs to size. Pull stories straight out of a Jira
-          epic, or type them in yourself.
+          Fibonacci estimation for any topic your team needs to size. Pull the backlog straight out of
+          Jira, Azure DevOps or GitHub, or type it in yourself.
         </p>
       </header>
 

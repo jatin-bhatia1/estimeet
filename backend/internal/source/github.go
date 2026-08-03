@@ -48,7 +48,7 @@ func (p *githubProvider) Describe() Descriptor {
 				Name:    "token",
 				Label:   "Personal access token",
 				Type:    "password",
-				Help:    "Create one at github.com/settings/tokens",
+				Help:    "It needs the repo scope, or public_repo for public repositories only.",
 				HelpURL: "https://github.com/settings/tokens",
 			},
 		},

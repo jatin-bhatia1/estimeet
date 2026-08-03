@@ -1,11 +1,12 @@
 import type {
+  AppConfig,
   ImportResult,
-  JiraIssue,
-  JiraProject,
   Mode,
   RoomState,
   RoomSummary,
   SessionResponse,
+  SourceContainer,
+  SourceItem,
 } from './types'
 
 const API_BASE = '/api'
@@ -128,43 +129,46 @@ export const api = {
   setCurrent: (code: string, token: string, body: { topicId?: string; direction?: 'next' | 'prev' }) =>
     request<RoomState>(`/rooms/${encodeURIComponent(code)}/current`, { method: 'POST', token, body }),
 
+  config: (signal?: AbortSignal) => request<AppConfig>('/config', { signal }),
+
+  /** Starts Atlassian's OAuth flow; every other tracker uses sourceConnect. */
   jiraConnect: (code: string, token: string) =>
     request<{ authorizeUrl: string }>(`/rooms/${encodeURIComponent(code)}/jira/connect`, {
       method: 'POST',
       token,
     }),
 
-  jiraConnectToken: (
+  sourceConnect: (
     code: string,
     token: string,
-    input: { siteUrl: string; email: string; apiToken: string },
-  ) => request<RoomState>(`/rooms/${encodeURIComponent(code)}/jira/token`, { method: 'POST', token, body: input }),
+    input: { provider: string; baseUrl: string; account: string; token: string },
+  ) => request<RoomState>(`/rooms/${encodeURIComponent(code)}/source`, { method: 'POST', token, body: input }),
 
-  jiraDisconnect: (code: string, token: string) =>
-    request<RoomState>(`/rooms/${encodeURIComponent(code)}/jira`, { method: 'DELETE', token }),
+  sourceDisconnect: (code: string, token: string) =>
+    request<RoomState>(`/rooms/${encodeURIComponent(code)}/source`, { method: 'DELETE', token }),
 
-  jiraProjects: (code: string, token: string, query: string) =>
-    request<{ projects: JiraProject[] }>(
-      `/rooms/${encodeURIComponent(code)}/jira/projects?query=${encodeURIComponent(query)}`,
+  sourceContainers: (code: string, token: string, query: string, signal?: AbortSignal) =>
+    request<{ containers: SourceContainer[] }>(
+      `/rooms/${encodeURIComponent(code)}/source/containers?query=${encodeURIComponent(query)}`,
+      { token, signal },
+    ),
+
+  sourceGroups: (code: string, token: string, container: string, query: string, signal?: AbortSignal) =>
+    request<{ groups: SourceItem[] }>(
+      `/rooms/${encodeURIComponent(code)}/source/groups?container=${encodeURIComponent(container)}&query=${encodeURIComponent(query)}`,
+      { token, signal },
+    ),
+
+  sourceItems: (code: string, token: string, container: string, group: string) =>
+    request<{ items: SourceItem[] }>(
+      `/rooms/${encodeURIComponent(code)}/source/items?container=${encodeURIComponent(container)}&group=${encodeURIComponent(group)}`,
       { token },
     ),
 
-  jiraEpics: (code: string, token: string, project: string, query: string) =>
-    request<{ epics: JiraIssue[] }>(
-      `/rooms/${encodeURIComponent(code)}/jira/epics?project=${encodeURIComponent(project)}&query=${encodeURIComponent(query)}`,
-      { token },
-    ),
-
-  jiraEpicIssues: (code: string, token: string, epicKey: string) =>
-    request<{ issues: JiraIssue[] }>(
-      `/rooms/${encodeURIComponent(code)}/jira/epics/${encodeURIComponent(epicKey)}/issues`,
-      { token },
-    ),
-
-  jiraImport: (code: string, token: string, keys: string[]) =>
-    request<{ result: ImportResult; state: RoomState }>(`/rooms/${encodeURIComponent(code)}/jira/import`, {
+  sourceImport: (code: string, token: string, container: string, group: string, keys: string[]) =>
+    request<{ result: ImportResult; state: RoomState }>(`/rooms/${encodeURIComponent(code)}/source/import`, {
       method: 'POST',
       token,
-      body: { keys },
+      body: { container, group, keys },
     }),
 }

@@ -107,14 +107,24 @@ Check 'total points are summed' ($state.summary.totalPoints -eq 8)
 $state = Call POST "/rooms/$syncCode/current" $hostToken @{ direction = 'next' }
 Check 'the host can advance to the next topic' ($state.room.currentTopicId -eq $second)
 
-# --- jira --------------------------------------------------------------------
-Write-Host "`nJira" -ForegroundColor Yellow
+# --- backlog sources ---------------------------------------------------------
+Write-Host "`nBacklog sources" -ForegroundColor Yellow
 Check 'a non Jira Cloud site is rejected' `
-    ((StatusOf POST "/rooms/$syncCode/jira/token" $hostToken @{ siteUrl = 'http://169.254.169.254'; email = 'a@b.c'; apiToken = 'x' }) -eq 400)
-Check 'a look-alike host is rejected' `
-    ((StatusOf POST "/rooms/$syncCode/jira/token" $hostToken @{ siteUrl = 'https://evil.atlassian.net.attacker.example'; email = 'a@b.c'; apiToken = 'x' }) -eq 400)
-Check 'a non-host cannot connect Jira' `
-    ((StatusOf POST "/rooms/$syncCode/jira/token" $playerToken @{ siteUrl = 'https://demo.atlassian.net'; email = 'a@b.c'; apiToken = 'x' }) -eq 403)
+    ((StatusOf POST "/rooms/$syncCode/source" $hostToken @{ provider = 'jira'; baseUrl = 'http://169.254.169.254'; account = 'a@b.c'; token = 'x' }) -eq 400)
+Check 'a look-alike Jira host is rejected' `
+    ((StatusOf POST "/rooms/$syncCode/source" $hostToken @{ provider = 'jira'; baseUrl = 'https://evil.atlassian.net.attacker.example'; account = 'a@b.c'; token = 'x' }) -eq 400)
+Check 'an unknown provider is rejected' `
+    ((StatusOf POST "/rooms/$syncCode/source" $hostToken @{ provider = 'gitlab'; baseUrl = ''; account = 'x'; token = 'x' }) -eq 400)
+Check 'an Azure organisation must not be a URL to elsewhere' `
+    ((StatusOf POST "/rooms/$syncCode/source" $hostToken @{ provider = 'azure'; baseUrl = ''; account = 'https://evil.example.com/contoso'; token = 'x' }) -eq 400)
+Check 'a non-host cannot connect a backlog' `
+    ((StatusOf POST "/rooms/$syncCode/source" $playerToken @{ provider = 'jira'; baseUrl = 'https://demo.atlassian.net'; account = 'a@b.c'; token = 'x' }) -eq 403)
+Check 'browsing without a connection is refused' `
+    ((StatusOf GET "/rooms/$syncCode/source/containers?query=" $hostToken $null) -eq 412)
+
+$config = Call GET '/config' $null
+Check 'the server advertises three backlog sources' ($config.sources.Count -eq 3)
+Check 'credentials are kept for a day at most' ($config.credentialTtlHours -eq 24)
 
 # --- asynchronous room -------------------------------------------------------
 Write-Host "`nAsynchronous mode" -ForegroundColor Yellow

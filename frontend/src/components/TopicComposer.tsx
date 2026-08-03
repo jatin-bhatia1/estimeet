@@ -7,7 +7,7 @@ interface TopicComposerProps {
 }
 
 /**
- * TopicComposer is the manual alternative to the Jira import: type one topic,
+ * TopicComposer is the manual alternative to a backlog import: type one topic,
  * or paste a whole list and get one topic per line.
  */
 export function TopicComposer({ onAdd }: TopicComposerProps) {

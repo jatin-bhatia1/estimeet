@@ -32,7 +32,7 @@ export function BacklogPanel({ state, onFocus, onDelete }: BacklogPanelProps) {
       {topics.length === 0 ? (
         <p className="py-6 text-center text-sm text-slate-500">
           No topics yet.
-          {me.isHost ? ' Add some below, or import an epic from Jira.' : ' Waiting for the host.'}
+          {me.isHost ? ' Add some below, or import them from your tracker.' : ' Waiting for the host.'}
         </p>
       ) : (
         <ol className="-mx-1 max-h-[26rem] space-y-1 overflow-y-auto px-1">
