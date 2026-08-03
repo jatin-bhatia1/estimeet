@@ -18,10 +18,15 @@ type RoomView struct {
 	AutoReveal     bool        `json:"autoReveal"`
 	Closed         bool        `json:"closed"`
 	CreatedAt      time.Time   `json:"createdAt"`
-	JiraAvailable  bool        `json:"jiraAvailable"`
-	JiraConnected  bool        `json:"jiraConnected"`
-	JiraSiteName   string      `json:"jiraSiteName,omitempty"`
-	JiraSiteURL    string      `json:"jiraSiteUrl,omitempty"`
+	// JiraAvailable means the room can connect to Jira at all; JiraOAuthAvailable
+	// additionally means this server has an Atlassian OAuth app registered.
+	JiraAvailable      bool   `json:"jiraAvailable"`
+	JiraOAuthAvailable bool   `json:"jiraOauthAvailable"`
+	JiraConnected      bool   `json:"jiraConnected"`
+	JiraAuthType       string `json:"jiraAuthType,omitempty"`
+	JiraAccountEmail   string `json:"jiraAccountEmail,omitempty"`
+	JiraSiteName       string `json:"jiraSiteName,omitempty"`
+	JiraSiteURL        string `json:"jiraSiteUrl,omitempty"`
 }
 
 // ParticipantView adds presence and progress to a participant.
@@ -124,8 +129,9 @@ func (s *Service) State(ctx context.Context, roomID, participantID string) (Room
 			CurrentTopicID: room.CurrentTopicID,
 			AutoReveal:     room.AutoReveal,
 			Closed:         room.ClosedAt != nil,
-			CreatedAt:      room.CreatedAt,
-			JiraAvailable:  s.JiraEnabled(),
+			CreatedAt:          room.CreatedAt,
+			JiraAvailable:      s.JiraAvailable(),
+			JiraOAuthAvailable: s.JiraOAuthAvailable(),
 		},
 		Participants: make([]ParticipantView, 0, len(participants)),
 		Topics:       make([]TopicView, 0, len(topics)),
@@ -135,6 +141,8 @@ func (s *Service) State(ctx context.Context, roomID, participantID string) (Room
 	// A missing Jira connection is the normal case, so the error is ignored here.
 	if conn, _, _, err := s.store.RawJiraConnection(ctx, room.ID); err == nil {
 		state.Room.JiraConnected = true
+		state.Room.JiraAuthType = conn.AuthType
+		state.Room.JiraAccountEmail = conn.AccountEmail
 		state.Room.JiraSiteName = conn.SiteName
 		state.Room.JiraSiteURL = conn.SiteURL
 	}

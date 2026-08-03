@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -38,7 +39,8 @@ type Client struct {
 	http         *http.Client
 }
 
-// New builds a client. Callers should only construct it when credentials exist.
+// New builds a client. The REST half works without OAuth credentials (API-token
+// connections do not need them); the OAuth half is only usable when they exist.
 func New(clientID, clientSecret, redirectURI string) *Client {
 	return &Client{
 		clientID:     clientID,
@@ -46,6 +48,67 @@ func New(clientID, clientSecret, redirectURI string) *Client {
 		redirectURI:  redirectURI,
 		http:         &http.Client{Timeout: 20 * time.Second},
 	}
+}
+
+// OAuthEnabled reports whether the "Connect with Atlassian" flow is configured.
+func (c *Client) OAuthEnabled() bool {
+	return c.clientID != "" && c.clientSecret != "" && c.redirectURI != ""
+}
+
+// Auth is one room's credentials for the Jira REST API. Estimeet supports two
+// shapes: an OAuth access token against api.atlassian.com, and an Atlassian API
+// token sent as HTTP Basic straight to the customer's site.
+type Auth struct {
+	// BaseURL is the prefix the /rest/api/3/... paths hang off, without a trailing slash.
+	BaseURL string
+	// Header is the full value of the Authorization header.
+	Header string
+}
+
+// OAuthAuth builds credentials for the 3LO flow, routed via the Atlassian gateway.
+func OAuthAuth(cloudID, accessToken string) Auth {
+	return Auth{
+		BaseURL: apiBase + "/" + url.PathEscape(cloudID),
+		Header:  "Bearer " + accessToken,
+	}
+}
+
+// TokenAuth builds credentials for an Atlassian account email + API token.
+// siteURL must already have passed NormalizeSiteURL.
+func TokenAuth(siteURL, email, apiToken string) Auth {
+	return Auth{
+		BaseURL: strings.TrimRight(siteURL, "/"),
+		Header:  "Basic " + base64.StdEncoding.EncodeToString([]byte(email+":"+apiToken)),
+	}
+}
+
+// ErrInvalidSiteURL is returned for anything that is not a Jira Cloud site.
+var ErrInvalidSiteURL = errors.New("jira: site must be an https://<your-site>.atlassian.net URL")
+
+// NormalizeSiteURL validates a user-supplied Jira site and returns its canonical
+// origin. This is the SSRF guard for API-token connections: without it a room
+// host could point the server at any machine on the network.
+func NormalizeSiteURL(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", ErrInvalidSiteURL
+	}
+	if !strings.Contains(trimmed, "://") {
+		trimmed = "https://" + trimmed
+	}
+	u, err := url.Parse(trimmed)
+	if err != nil {
+		return "", ErrInvalidSiteURL
+	}
+	if u.Scheme != "https" || u.User != nil || u.Port() != "" {
+		return "", ErrInvalidSiteURL
+	}
+	host := strings.ToLower(u.Hostname())
+	label, ok := strings.CutSuffix(host, ".atlassian.net")
+	if !ok || label == "" || strings.Contains(label, ".") {
+		return "", ErrInvalidSiteURL
+	}
+	return "https://" + host, nil
 }
 
 // Token is the OAuth token response.
@@ -166,9 +229,9 @@ func (c *Client) token(ctx context.Context, payload map[string]string) (Token, e
 	}, nil
 }
 
-// AccessibleResources lists the Jira sites the token can reach.
+// AccessibleResources lists the Jira sites the token can reach. OAuth only.
 func (c *Client) AccessibleResources(ctx context.Context, accessToken string) ([]Resource, error) {
-	raw, err := c.get(ctx, resourcesEndpoint, accessToken)
+	raw, err := c.get(ctx, resourcesEndpoint, "Bearer "+accessToken)
 	if err != nil {
 		return nil, err
 	}
@@ -179,17 +242,37 @@ func (c *Client) AccessibleResources(ctx context.Context, accessToken string) ([
 	return out, nil
 }
 
+// Account is the Atlassian user a set of credentials belongs to.
+type Account struct {
+	AccountID   string `json:"accountId"`
+	DisplayName string `json:"displayName"`
+	Email       string `json:"emailAddress"`
+}
+
+// Myself resolves the current user, and doubles as a credential check.
+func (c *Client) Myself(ctx context.Context, auth Auth) (Account, error) {
+	raw, err := c.get(ctx, auth.BaseURL+"/rest/api/3/myself", auth.Header)
+	if err != nil {
+		return Account{}, err
+	}
+	var out Account
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return Account{}, fmt.Errorf("decode myself: %w", err)
+	}
+	return out, nil
+}
+
 // Projects lists projects on a site, optionally filtered by a search string.
-func (c *Client) Projects(ctx context.Context, cloudID, accessToken, query string) ([]Project, error) {
+func (c *Client) Projects(ctx context.Context, auth Auth, query string) ([]Project, error) {
 	q := url.Values{}
 	q.Set("maxResults", "50")
 	q.Set("orderBy", "lastIssueUpdatedTime")
 	if query != "" {
 		q.Set("query", query)
 	}
-	endpoint := fmt.Sprintf("%s/%s/rest/api/3/project/search?%s", apiBase, url.PathEscape(cloudID), q.Encode())
+	endpoint := auth.BaseURL + "/rest/api/3/project/search?" + q.Encode()
 
-	raw, err := c.get(ctx, endpoint, accessToken)
+	raw, err := c.get(ctx, endpoint, auth.Header)
 	if err != nil {
 		return nil, err
 	}
@@ -202,33 +285,38 @@ func (c *Client) Projects(ctx context.Context, cloudID, accessToken, query strin
 	return res.Values, nil
 }
 
-// SearchEpics returns the open epics of a project.
-func (c *Client) SearchEpics(ctx context.Context, cloudID, accessToken, projectKey, text string) ([]Issue, error) {
+// SearchEpics returns epics, optionally narrowed to a project and/or a summary
+// or key fragment. Both filters are optional so the picker can search a whole site.
+func (c *Client) SearchEpics(ctx context.Context, auth Auth, projectKey, text string) ([]Issue, error) {
 	var jql strings.Builder
 	jql.WriteString(`issuetype = Epic`)
 	if projectKey != "" {
 		jql.WriteString(` AND project = ` + quoteJQL(projectKey))
 	}
 	if text != "" {
-		jql.WriteString(` AND summary ~ ` + quoteJQL(text+"*"))
+		if looksLikeIssueKey(text) {
+			jql.WriteString(` AND (key = ` + quoteJQL(text) + ` OR summary ~ ` + quoteJQL(text+"*") + `)`)
+		} else {
+			jql.WriteString(` AND summary ~ ` + quoteJQL(text+"*"))
+		}
 	}
 	jql.WriteString(` ORDER BY updated DESC`)
-	return c.search(ctx, cloudID, accessToken, jql.String(), 50)
+	return c.search(ctx, auth, jql.String(), 50)
 }
 
 // IssuesInEpic returns the children of an epic, which become the estimation topics.
-func (c *Client) IssuesInEpic(ctx context.Context, cloudID, accessToken, epicKey string) ([]Issue, error) {
+func (c *Client) IssuesInEpic(ctx context.Context, auth Auth, epicKey string) ([]Issue, error) {
 	// `parent` works for both team-managed and company-managed projects on Jira Cloud.
 	jql := fmt.Sprintf(`parent = %s AND issuetype != Sub-task ORDER BY created ASC`, quoteJQL(epicKey))
-	return c.search(ctx, cloudID, accessToken, jql, 100)
+	return c.search(ctx, auth, jql, 100)
 }
 
 // SearchJQL runs a caller-supplied JQL query.
-func (c *Client) SearchJQL(ctx context.Context, cloudID, accessToken, jql string, max int) ([]Issue, error) {
-	return c.search(ctx, cloudID, accessToken, jql, max)
+func (c *Client) SearchJQL(ctx context.Context, auth Auth, jql string, max int) ([]Issue, error) {
+	return c.search(ctx, auth, jql, max)
 }
 
-func (c *Client) search(ctx context.Context, cloudID, accessToken, jql string, max int) ([]Issue, error) {
+func (c *Client) search(ctx context.Context, auth Auth, jql string, max int) ([]Issue, error) {
 	if max <= 0 || max > 100 {
 		max = 50
 	}
@@ -237,9 +325,9 @@ func (c *Client) search(ctx context.Context, cloudID, accessToken, jql string, m
 	q.Set("maxResults", strconv.Itoa(max))
 	q.Set("fields", "summary,description,issuetype,status")
 	// /search/jql replaced the deprecated /search endpoint on Jira Cloud.
-	endpoint := fmt.Sprintf("%s/%s/rest/api/3/search/jql?%s", apiBase, url.PathEscape(cloudID), q.Encode())
+	endpoint := auth.BaseURL + "/rest/api/3/search/jql?" + q.Encode()
 
-	raw, err := c.get(ctx, endpoint, accessToken)
+	raw, err := c.get(ctx, endpoint, auth.Header)
 	if err != nil {
 		return nil, err
 	}
@@ -277,12 +365,12 @@ func (c *Client) search(ctx context.Context, cloudID, accessToken, jql string, m
 	return out, nil
 }
 
-func (c *Client) get(ctx context.Context, endpoint, accessToken string) ([]byte, error) {
+func (c *Client) get(ctx context.Context, endpoint, authHeader string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Authorization", authHeader)
 	req.Header.Set("Accept", "application/json")
 	return c.do(req)
 }
@@ -350,6 +438,23 @@ func summarize(body []byte) string {
 func quoteJQL(v string) string {
 	replacer := strings.NewReplacer(`\`, `\\`, `"`, `\"`)
 	return `"` + replacer.Replace(v) + `"`
+}
+
+// looksLikeIssueKey matches the PROJ-123 shape so searching for a key finds it.
+func looksLikeIssueKey(v string) bool {
+	key, num, ok := strings.Cut(v, "-")
+	if !ok || key == "" || num == "" {
+		return false
+	}
+	if _, err := strconv.Atoi(num); err != nil {
+		return false
+	}
+	for _, r := range key {
+		if !(r >= 'A' && r <= 'Z') && !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 // FlattenADF converts an Atlassian Document Format body into plain text.

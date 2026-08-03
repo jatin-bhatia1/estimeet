@@ -9,13 +9,23 @@ import (
 	"github.com/jatin-bhatia1/estimeet/backend/internal/domain"
 )
 
+// Jira authentication types stored in jira_connections.auth_type.
+const (
+	// JiraAuthOAuth is the 3LO flow, routed through api.atlassian.com.
+	JiraAuthOAuth = "oauth"
+	// JiraAuthToken is an Atlassian account email plus API token, sent as HTTP Basic.
+	JiraAuthToken = "token"
+)
+
 // JiraConnection is a room's link to a Jira Cloud site. Tokens are already
 // decrypted when this struct leaves the store.
 type JiraConnection struct {
 	RoomID       string
+	AuthType     string
 	CloudID      string
 	SiteURL      string
 	SiteName     string
+	AccountEmail string
 	AccessToken  string
 	RefreshToken string
 	ExpiresAt    time.Time
@@ -23,7 +33,11 @@ type JiraConnection struct {
 }
 
 // Expired reports whether the access token is past (or close to) its lifetime.
+// API tokens never expire on their own, so only OAuth connections can go stale.
 func (c JiraConnection) Expired(now time.Time) bool {
+	if c.AuthType == JiraAuthToken {
+		return false
+	}
 	return !now.Before(c.ExpiresAt.Add(-60 * time.Second))
 }
 
@@ -36,17 +50,25 @@ func (s *Store) SaveJiraConnection(ctx context.Context, c JiraConnection, access
 	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO jira_connections
-		   (room_id, cloud_id, site_url, site_name, access_token, refresh_token, expires_at, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		   (room_id, auth_type, cloud_id, site_url, site_name, account_email, access_token, refresh_token, expires_at, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT (room_id) DO UPDATE SET
+		   auth_type = excluded.auth_type,
 		   cloud_id = excluded.cloud_id,
 		   site_url = excluded.site_url,
 		   site_name = excluded.site_name,
+		   account_email = excluded.account_email,
 		   access_token = excluded.access_token,
-		   refresh_token = COALESCE(excluded.refresh_token, jira_connections.refresh_token),
+		   -- API-token connections have no refresh token; OAuth keeps the last one
+		   -- Atlassian handed out if this write did not rotate it.
+		   refresh_token = CASE
+		     WHEN excluded.auth_type = 'token' THEN NULL
+		     ELSE COALESCE(excluded.refresh_token, jira_connections.refresh_token)
+		   END,
 		   expires_at = excluded.expires_at,
 		   updated_at = excluded.updated_at`,
-		c.RoomID, c.CloudID, c.SiteURL, c.SiteName, accessEnc, refresh, toMillis(c.ExpiresAt), now, now)
+		c.RoomID, c.AuthType, c.CloudID, c.SiteURL, c.SiteName, c.AccountEmail,
+		accessEnc, refresh, toMillis(c.ExpiresAt), now, now)
 	return err
 }
 
@@ -60,9 +82,11 @@ func (s *Store) RawJiraConnection(ctx context.Context, roomID string) (JiraConne
 		updated    int64
 	)
 	err := s.db.QueryRowContext(ctx,
-		`SELECT room_id, cloud_id, site_url, site_name, access_token, refresh_token, expires_at, updated_at
+		`SELECT room_id, auth_type, cloud_id, site_url, site_name, account_email,
+		        access_token, refresh_token, expires_at, updated_at
 		 FROM jira_connections WHERE room_id = ?`, roomID).
-		Scan(&c.RoomID, &c.CloudID, &c.SiteURL, &c.SiteName, &accessEnc, &refreshEnc, &expires, &updated)
+		Scan(&c.RoomID, &c.AuthType, &c.CloudID, &c.SiteURL, &c.SiteName, &c.AccountEmail,
+			&accessEnc, &refreshEnc, &expires, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return JiraConnection{}, nil, nil, domain.ErrNotFound
 	}

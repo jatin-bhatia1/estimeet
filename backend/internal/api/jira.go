@@ -17,6 +17,28 @@ func (s *server) handleJiraConnect(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"authorizeUrl": authURL})
 }
 
+type jiraTokenConnectRequest struct {
+	SiteURL  string `json:"siteUrl"`
+	Email    string `json:"email"`
+	APIToken string `json:"apiToken"`
+}
+
+// handleJiraTokenConnect links a room with an Atlassian account email and API
+// token, for teams that cannot register an OAuth app.
+func (s *server) handleJiraTokenConnect(w http.ResponseWriter, r *http.Request) {
+	sess, _ := sessionFrom(r.Context())
+	var req jiraTokenConnectRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, r, err)
+		return
+	}
+	if err := s.svc.ConnectJiraToken(r.Context(), sess, req.SiteURL, req.Email, req.APIToken); err != nil {
+		writeError(w, r, err)
+		return
+	}
+	s.respondState(w, r, sess)
+}
+
 func (s *server) handleJiraDisconnect(w http.ResponseWriter, r *http.Request) {
 	sess, _ := sessionFrom(r.Context())
 	if err := s.svc.DisconnectJira(r.Context(), sess); err != nil {

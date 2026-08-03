@@ -14,15 +14,26 @@ import (
 	"github.com/jatin-bhatia1/estimeet/backend/internal/store"
 )
 
-// ErrJiraDisabled is returned when the server has no Atlassian credentials.
-var ErrJiraDisabled = errors.New("the Jira integration is not configured on this server")
+// ErrJiraDisabled is returned when the server has no Atlassian OAuth credentials.
+// It only affects "Connect with Atlassian"; API-token connections need no server setup.
+var ErrJiraDisabled = errors.New("the Jira OAuth app is not configured on this server")
 
 // ErrJiraNotConnected is returned when the room has not linked a Jira site yet.
 var ErrJiraNotConnected = errors.New("this room is not connected to Jira")
 
+// JiraOAuthAvailable reports whether the "Connect with Atlassian" button should be offered.
+func (s *Service) JiraOAuthAvailable() bool {
+	return s.jira != nil && s.jira.OAuthEnabled()
+}
+
+// JiraAvailable reports whether any Jira connection method is usable.
+func (s *Service) JiraAvailable() bool {
+	return s.jira != nil
+}
+
 // JiraAuthorizeURL starts the OAuth 2.0 flow for a room (host only).
 func (s *Service) JiraAuthorizeURL(ctx context.Context, sess Session) (string, error) {
-	if s.jira == nil {
+	if !s.JiraOAuthAvailable() {
 		return "", ErrJiraDisabled
 	}
 	if err := requireHost(sess); err != nil {
@@ -49,7 +60,7 @@ func (s *Service) JiraAuthorizeURL(ctx context.Context, sess Session) (string, e
 // JiraCompleteAuth finishes the OAuth callback and stores the encrypted tokens.
 // It returns the room code so the caller can redirect the user back.
 func (s *Service) JiraCompleteAuth(ctx context.Context, code, state string) (string, error) {
-	if s.jira == nil {
+	if !s.JiraOAuthAvailable() {
 		return "", ErrJiraDisabled
 	}
 	pending, err := s.store.ConsumeOAuthState(ctx, state)
@@ -95,11 +106,65 @@ func (s *Service) persistJiraToken(ctx context.Context, roomID string, site jira
 	}
 	return s.store.SaveJiraConnection(ctx, store.JiraConnection{
 		RoomID:    roomID,
+		AuthType:  store.JiraAuthOAuth,
 		CloudID:   site.ID,
 		SiteURL:   strings.TrimRight(site.URL, "/"),
 		SiteName:  site.Name,
 		ExpiresAt: token.ExpiresAt,
 	}, accessEnc, refreshEnc)
+}
+
+// ConnectJiraToken links a room to a Jira Cloud site with an Atlassian account
+// email and API token (host only). The credentials are verified against the
+// site before the token is encrypted and stored.
+func (s *Service) ConnectJiraToken(ctx context.Context, sess Session, siteURL, email, apiToken string) error {
+	if err := requireHost(sess); err != nil {
+		return err
+	}
+	if s.jira == nil {
+		return ErrJiraDisabled
+	}
+
+	// The site comes from a user, so only ever talk to a real Jira Cloud host.
+	site, err := jira.NormalizeSiteURL(siteURL)
+	if err != nil {
+		return fmt.Errorf("%w: %s", domain.ErrInvalid, err.Error())
+	}
+	email = clean(email, 254)
+	apiToken = strings.TrimSpace(apiToken)
+	if email == "" || apiToken == "" {
+		return fmt.Errorf("%w: your Atlassian email and API token are both required", domain.ErrInvalid)
+	}
+
+	auth := jira.TokenAuth(site, email, apiToken)
+	account, err := s.jira.Myself(ctx, auth)
+	if err != nil {
+		var apiErr *jira.APIError
+		if errors.As(err, &apiErr) && apiErr.Unauthorized() {
+			return fmt.Errorf("%w: Jira rejected those credentials", domain.ErrForbidden)
+		}
+		return err
+	}
+
+	accessEnc, err := s.box.Seal(apiToken)
+	if err != nil {
+		return err
+	}
+	siteName := strings.TrimPrefix(site, "https://")
+	if err := s.store.SaveJiraConnection(ctx, store.JiraConnection{
+		RoomID:       sess.Room.ID,
+		AuthType:     store.JiraAuthToken,
+		SiteURL:      site,
+		SiteName:     siteName,
+		AccountEmail: email,
+		// API tokens have no scheduled expiry; only revocation ends them.
+		ExpiresAt: s.now().AddDate(10, 0, 0),
+	}, accessEnc, nil); err != nil {
+		return err
+	}
+
+	s.publish(sess.Room.ID, "jira.connected", map[string]string{"site": siteName, "account": account.DisplayName})
+	return nil
 }
 
 // DisconnectJira drops the stored tokens for a room (host only).
@@ -114,61 +179,71 @@ func (s *Service) DisconnectJira(ctx context.Context, sess Session) error {
 	return nil
 }
 
-// jiraAccess returns a usable connection, refreshing the access token when needed.
-func (s *Service) jiraAccess(ctx context.Context, roomID string) (store.JiraConnection, string, error) {
+// jiraAccess returns a usable connection plus ready-to-send credentials,
+// refreshing an OAuth access token when it has gone stale.
+func (s *Service) jiraAccess(ctx context.Context, roomID string) (store.JiraConnection, jira.Auth, error) {
 	if s.jira == nil {
-		return store.JiraConnection{}, "", ErrJiraDisabled
+		return store.JiraConnection{}, jira.Auth{}, ErrJiraDisabled
 	}
 	conn, accessEnc, refreshEnc, err := s.store.RawJiraConnection(ctx, roomID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
-			return store.JiraConnection{}, "", ErrJiraNotConnected
+			return store.JiraConnection{}, jira.Auth{}, ErrJiraNotConnected
 		}
-		return store.JiraConnection{}, "", err
+		return store.JiraConnection{}, jira.Auth{}, err
 	}
 
 	accessToken, err := s.box.Open(accessEnc)
 	if err != nil {
-		return store.JiraConnection{}, "", fmt.Errorf("stored Jira token is unreadable, please reconnect")
+		return store.JiraConnection{}, jira.Auth{}, errUnreadableJiraToken
+	}
+
+	if conn.AuthType == store.JiraAuthToken {
+		return conn, jira.TokenAuth(conn.SiteURL, conn.AccountEmail, accessToken), nil
 	}
 	if !conn.Expired(s.now()) {
-		return conn, accessToken, nil
+		return conn, jira.OAuthAuth(conn.CloudID, accessToken), nil
 	}
 
 	if len(refreshEnc) == 0 {
-		return store.JiraConnection{}, "", fmt.Errorf("%w: the Jira session expired, please reconnect", domain.ErrForbidden)
+		return store.JiraConnection{}, jira.Auth{}, errJiraSessionExpired
 	}
 	refreshToken, err := s.box.Open(refreshEnc)
 	if err != nil {
-		return store.JiraConnection{}, "", fmt.Errorf("stored Jira token is unreadable, please reconnect")
+		return store.JiraConnection{}, jira.Auth{}, errUnreadableJiraToken
 	}
 	token, err := s.jira.Refresh(ctx, refreshToken)
 	if err != nil {
-		return store.JiraConnection{}, "", fmt.Errorf("%w: the Jira session expired, please reconnect", domain.ErrForbidden)
+		return store.JiraConnection{}, jira.Auth{}, errJiraSessionExpired
 	}
 	if err := s.persistJiraToken(ctx, roomID, jira.Resource{ID: conn.CloudID, Name: conn.SiteName, URL: conn.SiteURL}, token); err != nil {
-		return store.JiraConnection{}, "", err
+		return store.JiraConnection{}, jira.Auth{}, err
 	}
 	conn.ExpiresAt = token.ExpiresAt
-	return conn, token.AccessToken, nil
+	return conn, jira.OAuthAuth(conn.CloudID, token.AccessToken), nil
 }
+
+var (
+	errUnreadableJiraToken = errors.New("the stored Jira credentials are unreadable, please reconnect")
+	errJiraSessionExpired  = fmt.Errorf("%w: the Jira session expired, please reconnect", domain.ErrForbidden)
+)
 
 // JiraProjects lists the projects of the connected site.
 func (s *Service) JiraProjects(ctx context.Context, sess Session, query string) ([]jira.Project, error) {
-	conn, token, err := s.jiraAccess(ctx, sess.Room.ID)
+	_, auth, err := s.jiraAccess(ctx, sess.Room.ID)
 	if err != nil {
 		return nil, err
 	}
-	return s.jira.Projects(ctx, conn.CloudID, token, query)
+	return s.jira.Projects(ctx, auth, clean(query, 100))
 }
 
-// JiraEpics lists the epics of a project.
+// JiraEpics lists epics, optionally narrowed to a project and/or a search term.
 func (s *Service) JiraEpics(ctx context.Context, sess Session, projectKey, query string) ([]jira.Issue, error) {
-	conn, token, err := s.jiraAccess(ctx, sess.Room.ID)
+	conn, auth, err := s.jiraAccess(ctx, sess.Room.ID)
 	if err != nil {
 		return nil, err
 	}
-	issues, err := s.jira.SearchEpics(ctx, conn.CloudID, token, projectKey, query)
+	issues, err := s.jira.SearchEpics(ctx, auth, clean(projectKey, 64), clean(query, 100))
 	if err != nil {
 		return nil, err
 	}
@@ -180,11 +255,11 @@ func (s *Service) JiraEpicIssues(ctx context.Context, sess Session, epicKey stri
 	if strings.TrimSpace(epicKey) == "" {
 		return nil, fmt.Errorf("%w: an epic key is required", domain.ErrInvalid)
 	}
-	conn, token, err := s.jiraAccess(ctx, sess.Room.ID)
+	conn, auth, err := s.jiraAccess(ctx, sess.Room.ID)
 	if err != nil {
 		return nil, err
 	}
-	issues, err := s.jira.IssuesInEpic(ctx, conn.CloudID, token, epicKey)
+	issues, err := s.jira.IssuesInEpic(ctx, auth, epicKey)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +285,7 @@ func (s *Service) ImportJiraIssues(ctx context.Context, sess Session, keys []str
 		return ImportResult{}, fmt.Errorf("%w: import at most %d issues at a time", domain.ErrInvalid, MaxTopicsPerImport)
 	}
 
-	conn, token, err := s.jiraAccess(ctx, sess.Room.ID)
+	conn, auth, err := s.jiraAccess(ctx, sess.Room.ID)
 	if err != nil {
 		return ImportResult{}, err
 	}
@@ -228,7 +303,7 @@ func (s *Service) ImportJiraIssues(ctx context.Context, sess Session, keys []str
 	}
 
 	jql := fmt.Sprintf("issuekey IN (%s) ORDER BY created ASC", strings.Join(quoted, ", "))
-	issues, err := s.jira.SearchJQL(ctx, conn.CloudID, token, jql, len(quoted))
+	issues, err := s.jira.SearchJQL(ctx, auth, jql, len(quoted))
 	if err != nil {
 		return ImportResult{}, err
 	}

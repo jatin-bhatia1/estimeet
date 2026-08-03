@@ -54,9 +54,11 @@ CREATE INDEX IF NOT EXISTS idx_votes_participant ON votes (participant_id);
 -- One Jira Cloud connection per room. Tokens are encrypted at rest (AES-256-GCM).
 CREATE TABLE IF NOT EXISTS jira_connections (
     room_id       TEXT PRIMARY KEY REFERENCES rooms (id) ON DELETE CASCADE,
+    auth_type     TEXT NOT NULL DEFAULT 'oauth' CHECK (auth_type IN ('oauth', 'token')),
     cloud_id      TEXT NOT NULL,
     site_url      TEXT NOT NULL,
     site_name     TEXT NOT NULL DEFAULT '',
+    account_email TEXT NOT NULL DEFAULT '',
     access_token  BLOB NOT NULL,
     refresh_token BLOB,
     expires_at    INTEGER NOT NULL,

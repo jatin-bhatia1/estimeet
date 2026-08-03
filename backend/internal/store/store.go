@@ -52,7 +52,45 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
+	if err := migrate(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	return &Store{db: db}, nil
+}
+
+// migrate adds columns that were introduced after a database was first created.
+// CREATE TABLE IF NOT EXISTS in schema.sql only helps fresh installs, so every
+// later column has to be added here as well. Additions are idempotent.
+func migrate(db *sql.DB) error {
+	additions := []struct{ table, column, definition string }{
+		{"jira_connections", "auth_type", "TEXT NOT NULL DEFAULT 'oauth'"},
+		{"jira_connections", "account_email", "TEXT NOT NULL DEFAULT ''"},
+	}
+	for _, a := range additions {
+		present, err := hasColumn(db, a.table, a.column)
+		if err != nil {
+			return err
+		}
+		if present {
+			continue
+		}
+		// The identifiers are compile-time constants, never user input.
+		stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", a.table, a.column, a.definition)
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("add column %s.%s: %w", a.table, a.column, err)
+		}
+	}
+	return nil
+}
+
+func hasColumn(db *sql.DB, table, column string) (bool, error) {
+	var count int
+	err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?", table, column).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("inspect %s: %w", table, err)
+	}
+	return count > 0, nil
 }
 
 // Close releases the database handle.

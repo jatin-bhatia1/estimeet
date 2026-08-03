@@ -44,7 +44,7 @@ func NewRouter(cfg config.Config, svc *service.Service) http.Handler {
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "jira": svc.JiraEnabled()})
+			writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "jira": svc.JiraAvailable(), "jiraOauth": svc.JiraOAuthAvailable()})
 		})
 
 		r.With(joinLimiter.middleware).Post("/rooms", s.handleCreateRoom)
@@ -79,6 +79,7 @@ func NewRouter(cfg config.Config, svc *service.Service) http.Handler {
 			r.Post("/rooms/{code}/current", s.handleSetCurrent)
 
 			r.Post("/rooms/{code}/jira/connect", s.handleJiraConnect)
+			r.Post("/rooms/{code}/jira/token", s.handleJiraTokenConnect)
 			r.Delete("/rooms/{code}/jira", s.handleJiraDisconnect)
 			r.Get("/rooms/{code}/jira/projects", s.handleJiraProjects)
 			r.Get("/rooms/{code}/jira/epics", s.handleJiraEpics)

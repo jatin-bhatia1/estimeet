@@ -45,12 +45,13 @@ func run() error {
 		return err
 	}
 
-	var jiraClient *jira.Client
+	// The client is always built: connecting a room with an Atlassian API token
+	// needs no server-side credentials. Only the OAuth flow depends on them.
+	jiraClient := jira.New(cfg.Jira.ClientID, cfg.Jira.ClientSecret, cfg.Jira.RedirectURI)
 	if cfg.Jira.Enabled() {
-		jiraClient = jira.New(cfg.Jira.ClientID, cfg.Jira.ClientSecret, cfg.Jira.RedirectURI)
-		slog.Info("jira integration enabled", "redirect_uri", cfg.Jira.RedirectURI)
+		slog.Info("jira oauth enabled", "redirect_uri", cfg.Jira.RedirectURI)
 	} else {
-		slog.Info("jira integration disabled (set JIRA_CLIENT_ID, JIRA_CLIENT_SECRET, JIRA_REDIRECT_URI to enable)")
+		slog.Info("jira oauth disabled, api-token connections still available (set JIRA_CLIENT_ID, JIRA_CLIENT_SECRET, JIRA_REDIRECT_URI to enable)")
 	}
 
 	svc := service.New(st, hub.New(), box, jiraClient)
