@@ -134,6 +134,12 @@ export const api = {
       token,
     }),
 
+  jiraConnectToken: (
+    code: string,
+    token: string,
+    input: { siteUrl: string; email: string; apiToken: string },
+  ) => request<RoomState>(`/rooms/${encodeURIComponent(code)}/jira/token`, { method: 'POST', token, body: input }),
+
   jiraDisconnect: (code: string, token: string) =>
     request<RoomState>(`/rooms/${encodeURIComponent(code)}/jira`, { method: 'DELETE', token }),
 

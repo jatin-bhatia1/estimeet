@@ -13,8 +13,13 @@ export interface RoomView {
   autoReveal: boolean
   closed: boolean
   createdAt: string
+  /** True when the room can connect to Jira at all. */
   jiraAvailable: boolean
+  /** True when this server has an Atlassian OAuth app registered. */
+  jiraOauthAvailable: boolean
   jiraConnected: boolean
+  jiraAuthType?: 'oauth' | 'token'
+  jiraAccountEmail?: string
   jiraSiteName?: string
   jiraSiteUrl?: string
 }
@@ -22,6 +27,7 @@ export interface RoomView {
 export interface ParticipantView {
   id: string
   name: string
+  /** Granted only to whoever created the session, and never transferred. */
   isHost: boolean
   isObserver: boolean
   online: boolean

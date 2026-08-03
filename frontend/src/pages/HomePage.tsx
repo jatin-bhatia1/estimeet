@@ -151,6 +151,9 @@ function CreateForm({ navigate }: { navigate: Navigate }) {
           required
         />
       </div>
+      <p className="-mt-3 text-xs text-slate-500">
+        You create the session, so you are its host: only you can reveal the cards.
+      </p>
 
       <fieldset>
         <legend className="label">Mode</legend>
