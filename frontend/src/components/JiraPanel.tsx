@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { FormEvent, ReactNode } from 'react'
 
 import { ApiError, api } from '../lib/api'
@@ -13,13 +14,14 @@ interface JiraPanelProps {
 
 /**
  * JiraPanel is the optional backlog source: connect the room to a Jira Cloud
- * site, search for an epic and pull its stories in as topics. Only the host
- * sees it.
+ * site, search for an epic and pull its stories in as topics. Everything after
+ * the first click happens in one centered window, which turns from the connect
+ * form into the epic browser as soon as the room is linked. Only the host sees
+ * it.
  */
 export function JiraPanel({ state, token, onImported, onError }: JiraPanelProps) {
   const { room, me } = state
-  const [importing, setImporting] = useState(false)
-  const [connectOpen, setConnectOpen] = useState(false)
+  const [dialogOpen, setDialogOpen] = useState(false)
 
   if (!me.isHost) return null
 
@@ -61,7 +63,7 @@ export function JiraPanel({ state, token, onImported, onError }: JiraPanelProps)
           <p className="mb-3 truncate text-[11px] text-slate-600">
             {room.jiraAuthType === 'token' ? `API token · ${room.jiraAccountEmail ?? ''}` : 'OAuth'}
           </p>
-          <button type="button" className="btn-ghost w-full" onClick={() => setImporting(true)}>
+          <button type="button" className="btn-ghost w-full" onClick={() => setDialogOpen(true)}>
             Search epics and import
           </button>
         </>
@@ -70,34 +72,37 @@ export function JiraPanel({ state, token, onImported, onError }: JiraPanelProps)
           <p className="mb-3 text-xs leading-relaxed text-slate-500">
             Connect the room to your Jira site to pull the stories of an epic straight into the backlog.
           </p>
-          <button type="button" className="btn-ghost w-full" onClick={() => setConnectOpen(true)}>
+          <button type="button" className="btn-ghost w-full" onClick={() => setDialogOpen(true)}>
             Connect to Jira
           </button>
         </>
       )}
 
-      {connectOpen && (
-        <ConnectDialog
-          roomCode={room.code}
-          token={token}
-          oauthAvailable={room.jiraOauthAvailable}
-          onClose={() => setConnectOpen(false)}
-          onConnected={(next) => {
-            setConnectOpen(false)
-            onImported(next, 0, [])
-          }}
-          onError={onError}
-        />
-      )}
-
-      {importing && (
-        <ImportDialog
-          roomCode={room.code}
-          token={token}
-          onClose={() => setImporting(false)}
-          onImported={onImported}
-          onError={onError}
-        />
+      {dialogOpen && (
+        <Modal
+          label={room.jiraConnected ? 'Import from Jira' : 'Connect to Jira'}
+          onClose={() => setDialogOpen(false)}
+        >
+          {room.jiraConnected ? (
+            <ImportPane
+              roomCode={room.code}
+              token={token}
+              onClose={() => setDialogOpen(false)}
+              onImported={onImported}
+              onError={onError}
+            />
+          ) : (
+            <ConnectPane
+              roomCode={room.code}
+              token={token}
+              oauthAvailable={room.jiraOauthAvailable}
+              onClose={() => setDialogOpen(false)}
+              // The window stays open: the new state flips it to the epic browser.
+              onConnected={(next) => onImported(next, 0, [])}
+              onError={onError}
+            />
+          )}
+        </Modal>
       )}
     </div>
   )
@@ -105,7 +110,7 @@ export function JiraPanel({ state, token, onImported, onError }: JiraPanelProps)
 
 // ------------------------------------------------------------------ connect
 
-interface ConnectDialogProps {
+interface ConnectPaneProps {
   roomCode: string
   token: string
   oauthAvailable: boolean
@@ -117,11 +122,11 @@ interface ConnectDialogProps {
 const API_TOKEN_HELP = 'https://id.atlassian.com/manage-profile/security/api-tokens'
 
 /**
- * ConnectDialog offers the two ways to link a room to Jira Cloud: an Atlassian
+ * ConnectPane offers the two ways to link a room to Jira Cloud: an Atlassian
  * API token, which needs no server configuration, and the OAuth flow when this
  * server has an Atlassian app registered.
  */
-function ConnectDialog({ roomCode, token, oauthAvailable, onClose, onConnected, onError }: ConnectDialogProps) {
+function ConnectPane({ roomCode, token, oauthAvailable, onClose, onConnected, onError }: ConnectPaneProps) {
   const [siteUrl, setSiteUrl] = useState('')
   const [email, setEmail] = useState('')
   const [apiToken, setApiToken] = useState('')
@@ -155,13 +160,8 @@ function ConnectDialog({ roomCode, token, oauthAvailable, onClose, onConnected, 
   }
 
   return (
-    <Modal label="Connect to Jira" onClose={onClose}>
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-50">Connect to Jira</h2>
-        <button type="button" onClick={onClose} className="text-slate-500 hover:text-slate-200">
-          ✕
-        </button>
-      </div>
+    <>
+      <ModalHeader title="Connect to Jira" onClose={onClose} />
 
       <div className="min-h-0 overflow-y-auto">
         {oauthAvailable && (
@@ -254,13 +254,13 @@ function ConnectDialog({ roomCode, token, oauthAvailable, onClose, onConnected, 
           </div>
         </form>
       </div>
-    </Modal>
+    </>
   )
 }
 
 // ------------------------------------------------------------------- import
 
-interface ImportDialogProps {
+interface ImportPaneProps {
   roomCode: string
   token: string
   onClose: () => void
@@ -268,7 +268,8 @@ interface ImportDialogProps {
   onError: (message: string) => void
 }
 
-function ImportDialog({ roomCode, token, onClose, onImported, onError }: ImportDialogProps) {
+/** ImportPane browses the connected site: project, then epic, then stories. */
+function ImportPane({ roomCode, token, onClose, onImported, onError }: ImportPaneProps) {
   const [projects, setProjects] = useState<JiraProject[]>([])
   const [project, setProject] = useState('')
   const [epicQuery, setEpicQuery] = useState('')
@@ -389,13 +390,8 @@ function ImportDialog({ roomCode, token, onClose, onImported, onError }: ImportD
   }
 
   return (
-    <Modal label="Import from Jira" onClose={onClose}>
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-50">{epic ? `Stories in ${epic.key}` : 'Find an epic'}</h2>
-        <button type="button" onClick={onClose} className="text-slate-500 hover:text-slate-200">
-          ✕
-        </button>
-      </div>
+    <>
+      <ModalHeader title={epic ? `Stories in ${epic.key}` : 'Find an epic'} onClose={onClose} />
 
       {epic ? (
         <>
@@ -545,7 +541,7 @@ function ImportDialog({ roomCode, token, onClose, onImported, onError }: ImportD
           </div>
         </>
       )}
-    </Modal>
+    </>
   )
 }
 
@@ -557,23 +553,54 @@ interface ModalProps {
   children: ReactNode
 }
 
+/**
+ * Modal centers its content on the viewport. It renders into document.body on
+ * purpose: the surrounding panels use backdrop-blur, which makes them the
+ * containing block for fixed positioning, and the window would otherwise be
+ * anchored to, and clipped by, the sidebar it was opened from.
+ */
 function Modal({ label, onClose, children }: ModalProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    const { overflow } = document.body.style
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = overflow
+    }
   }, [onClose])
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label={label}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
     >
       <div className="panel flex max-h-[85vh] w-full max-w-2xl flex-col bg-surface-900 p-6">{children}</div>
+    </div>,
+    document.body,
+  )
+}
+
+function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
+  return (
+    <div className="mb-4 flex items-center justify-between gap-4">
+      <h2 className="truncate text-lg font-semibold text-slate-50">{title}</h2>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close"
+        className="shrink-0 text-slate-500 hover:text-slate-200"
+      >
+        ✕
+      </button>
     </div>
   )
 }
