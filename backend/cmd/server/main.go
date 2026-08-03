@@ -1,0 +1,87 @@
+// Command server runs the Estimeet API and WebSocket gateway.
+package main
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/jatin-bhatia1/estimeet/backend/internal/api"
+	"github.com/jatin-bhatia1/estimeet/backend/internal/config"
+	"github.com/jatin-bhatia1/estimeet/backend/internal/hub"
+	"github.com/jatin-bhatia1/estimeet/backend/internal/jira"
+	"github.com/jatin-bhatia1/estimeet/backend/internal/secretbox"
+	"github.com/jatin-bhatia1/estimeet/backend/internal/service"
+	"github.com/jatin-bhatia1/estimeet/backend/internal/store"
+)
+
+func main() {
+	if err := run(); err != nil {
+		slog.Error("server stopped", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})))
+
+	st, err := store.Open(cfg.DBPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = st.Close() }()
+
+	box, err := secretbox.New(cfg.Secret)
+	if err != nil {
+		return err
+	}
+
+	var jiraClient *jira.Client
+	if cfg.Jira.Enabled() {
+		jiraClient = jira.New(cfg.Jira.ClientID, cfg.Jira.ClientSecret, cfg.Jira.RedirectURI)
+		slog.Info("jira integration enabled", "redirect_uri", cfg.Jira.RedirectURI)
+	} else {
+		slog.Info("jira integration disabled (set JIRA_CLIENT_ID, JIRA_CLIENT_SECRET, JIRA_REDIRECT_URI to enable)")
+	}
+
+	svc := service.New(st, hub.New(), box, jiraClient)
+
+	srv := &http.Server{
+		Addr:              cfg.Addr,
+		Handler:           api.NewRouter(cfg, svc),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		// No WriteTimeout: it would cut long-lived WebSocket connections.
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	errCh := make(chan error, 1)
+	go func() {
+		slog.Info("estimeet api listening", "addr", cfg.Addr, "db", cfg.DBPath)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+		}
+	}()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		slog.Info("shutting down")
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return srv.Shutdown(shutdownCtx)
+}

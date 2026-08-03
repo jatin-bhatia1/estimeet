@@ -1,0 +1,14 @@
+# Go
+backend/data/
+backend/*.exe
+backend/estimeet
+
+# Node / Vite
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.log
+
+# Editors / OS
+.DS_Store
+Thumbs.db
