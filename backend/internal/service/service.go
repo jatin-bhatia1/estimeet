@@ -109,6 +109,10 @@ type CreateRoomInput struct {
 	Mode       domain.Mode
 	HostName   string
 	AutoReveal *bool
+	// ExpectedSize and ExpectedNames are the optional roster: how many people
+	// the host is waiting for, and any names they already know.
+	ExpectedSize  int
+	ExpectedNames []string
 }
 
 // CreatedRoom is returned once, and carries the new participant's bearer token.
@@ -138,14 +142,21 @@ func (s *Service) CreateRoom(ctx context.Context, in CreateRoomInput) (CreatedRo
 		autoReveal = *in.AutoReveal
 	}
 
+	size, names, err := normaliseRoster(in.ExpectedSize, in.ExpectedNames)
+	if err != nil {
+		return CreatedRoom{}, err
+	}
+
 	now := s.now()
 	room := domain.Room{
-		ID:         uuid.NewString(),
-		Name:       name,
-		Mode:       in.Mode,
-		Deck:       domain.DefaultDeck(),
-		AutoReveal: autoReveal,
-		CreatedAt:  now,
+		ID:            uuid.NewString(),
+		Name:          name,
+		Mode:          in.Mode,
+		Deck:          domain.DefaultDeck(),
+		AutoReveal:    autoReveal,
+		CreatedAt:     now,
+		ExpectedSize:  size,
+		ExpectedNames: names,
 	}
 
 	// Room codes are random; retry on the (very unlikely) collision.
@@ -314,12 +325,25 @@ func (s *Service) SetRoster(ctx context.Context, sess Session, size int, names [
 	if err := requireHost(sess); err != nil {
 		return err
 	}
+	size, cleaned, err := normaliseRoster(size, names)
+	if err != nil {
+		return err
+	}
+	if err := s.store.SetRoster(ctx, sess.Room.ID, size, cleaned); err != nil {
+		return err
+	}
+	s.publish(sess.Room.ID, "room.updated", nil)
+	return nil
+}
+
+// normaliseRoster tidies a headcount and its list of names. Names are a memory
+// aid, so blanks and near-duplicates are folded away rather than refused: the
+// host is typing a list, not filling in a form.
+func normaliseRoster(size int, names []string) (int, []string, error) {
 	if size < 0 || size > MaxPlayersPerRoom {
-		return fmt.Errorf("%w: expect between 0 and %d people", domain.ErrInvalid, MaxPlayersPerRoom)
+		return 0, nil, fmt.Errorf("%w: expect between 0 and %d people", domain.ErrInvalid, MaxPlayersPerRoom)
 	}
 
-	// Names are a memory aid, so near-duplicates are folded rather than refused:
-	// the host is typing a list, not filling in a form.
 	cleaned := make([]string, 0, len(names))
 	seen := make(map[string]bool, len(names))
 	for _, raw := range names {
@@ -338,12 +362,7 @@ func (s *Service) SetRoster(ctx context.Context, sess Session, size int, names [
 		// Listing more names than seats is a typo in the headcount, not an error.
 		size = len(cleaned)
 	}
-
-	if err := s.store.SetRoster(ctx, sess.Room.ID, size, cleaned); err != nil {
-		return err
-	}
-	s.publish(sess.Room.ID, "room.updated", nil)
-	return nil
+	return size, cleaned, nil
 }
 
 // PurgeStaleRooms deletes sessions nobody has touched for the retention window.

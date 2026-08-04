@@ -1,3 +1,4 @@
+import { API_BASE } from './origin'
 import type {
   AppConfig,
   ImportResult,
@@ -8,8 +9,6 @@ import type {
   SourceContainer,
   SourceItem,
 } from './types'
-
-const API_BASE = '/api'
 
 /** ApiError carries the HTTP status so callers can react to 403/409 specifically. */
 export class ApiError extends Error {
@@ -59,7 +58,14 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 }
 
 export const api = {
-  createRoom: (input: { name: string; mode: Mode; hostName: string; autoReveal: boolean }) =>
+  createRoom: (input: {
+    name: string
+    mode: Mode
+    hostName: string
+    autoReveal: boolean
+    expectedSize?: number
+    expectedNames?: string[]
+  }) =>
     request<SessionResponse>('/rooms', { method: 'POST', body: input }),
 
   roomSummary: (code: string, signal?: AbortSignal) =>

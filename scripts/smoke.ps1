@@ -137,6 +137,13 @@ Check 'a non-host cannot set the roster' `
 Check 'an absurd headcount is rejected' `
     ((StatusOf PUT "/rooms/$syncCode/roster" $hostToken @{ size = 10000; names = @() }) -eq 400)
 
+$withRoster = Call POST '/rooms' $null @{
+    name = 'Smoke roster'; mode = 'sync'; hostName = 'Ada'; autoReveal = $true
+    expectedSize = 4; expectedNames = @('Ada', 'Rex')
+}
+Check 'a roster can be set while creating the session' `
+    ($withRoster.state.room.expectedSize -eq 4 -and $withRoster.state.room.expectedNames.Count -eq 2)
+
 # --- asynchronous room -------------------------------------------------------
 Write-Host "`nAsynchronous mode" -ForegroundColor Yellow
 $async = Call POST '/rooms' $null @{ name = 'Smoke async'; mode = 'async'; hostName = 'Grace'; autoReveal = $true }

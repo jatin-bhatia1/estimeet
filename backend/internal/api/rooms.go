@@ -10,10 +10,12 @@ import (
 )
 
 type createRoomRequest struct {
-	Name       string `json:"name"`
-	Mode       string `json:"mode"`
-	HostName   string `json:"hostName"`
-	AutoReveal *bool  `json:"autoReveal"`
+	Name          string   `json:"name"`
+	Mode          string   `json:"mode"`
+	HostName      string   `json:"hostName"`
+	AutoReveal    *bool    `json:"autoReveal"`
+	ExpectedSize  int      `json:"expectedSize"`
+	ExpectedNames []string `json:"expectedNames"`
 }
 
 type sessionResponse struct {
@@ -31,10 +33,12 @@ func (s *server) handleCreateRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	created, err := s.svc.CreateRoom(r.Context(), service.CreateRoomInput{
-		Name:       req.Name,
-		Mode:       domain.Mode(req.Mode),
-		HostName:   req.HostName,
-		AutoReveal: req.AutoReveal,
+		Name:          req.Name,
+		Mode:          domain.Mode(req.Mode),
+		HostName:      req.HostName,
+		AutoReveal:    req.AutoReveal,
+		ExpectedSize:  req.ExpectedSize,
+		ExpectedNames: req.ExpectedNames,
 	})
 	if err != nil {
 		writeError(w, r, err)

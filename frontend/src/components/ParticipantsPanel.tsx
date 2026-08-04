@@ -44,10 +44,10 @@ export function ParticipantsPanel({ state, onKick, onSetRoster }: ParticipantsPa
             <button
               type="button"
               onClick={() => setEditing((v) => !v)}
-              className="text-xs text-slate-600 transition hover:text-slate-300"
+              className="rounded-full border border-white/10 px-2 py-0.5 text-[11px] text-slate-400 transition hover:border-white/25 hover:text-slate-200"
               title="Who is expected in this session?"
             >
-              {rosterSet ? 'edit' : '+ expected'}
+              {rosterSet ? 'edit expected' : '+ who is expected'}
             </button>
           )}
         </div>

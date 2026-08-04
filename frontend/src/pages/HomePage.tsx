@@ -105,15 +105,29 @@ function CreateForm({ navigate }: { navigate: Navigate }) {
   const [hostName, setHostName] = useState(recallName)
   const [mode, setMode] = useState<Mode>('sync')
   const [autoReveal, setAutoReveal] = useState(true)
+  const [expected, setExpected] = useState('')
+  const [expectedNames, setExpectedNames] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const names = expectedNames
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setBusy(true)
     setError(null)
     try {
-      const session = await api.createRoom({ name, mode, hostName, autoReveal })
+      const session = await api.createRoom({
+        name,
+        mode,
+        hostName,
+        autoReveal,
+        expectedSize: Number(expected) || names.length,
+        expectedNames: names,
+      })
       persistAndGo(navigate, session)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not create the session.')
@@ -195,6 +209,42 @@ function CreateForm({ navigate }: { navigate: Navigate }) {
           </span>
         </span>
       </label>
+
+      {/* The roster is optional and only ever used to show who is still
+          missing, so it sits in its own quiet block below the real settings. */}
+      <fieldset className="rounded-xl border border-white/10 bg-black/20 p-3.5">
+        <legend className="px-1 text-sm text-slate-300">
+          Who are you expecting? <span className="text-xs text-slate-500">(optional)</span>
+        </legend>
+        <div className="grid gap-3 sm:grid-cols-[7rem_minmax(0,1fr)]">
+          <label className="block">
+            <span className="label !mb-1 !text-[11px]">People</span>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              className="field"
+              value={expected}
+              onChange={(e) => setExpected(e.target.value)}
+              placeholder="6"
+            />
+          </label>
+          <label className="block">
+            <span className="label !mb-1 !text-[11px]">Names, one per line</span>
+            <textarea
+              rows={3}
+              className="field resize-y"
+              value={expectedNames}
+              onChange={(e) => setExpectedNames(e.target.value)}
+              placeholder={'Ada\nJay'}
+            />
+          </label>
+        </div>
+        <p className="mt-2 text-xs text-slate-500">
+          The room will show who has joined and who is still missing. Nobody is kept out by this — you
+          can change it later from the team panel.
+        </p>
+      </fieldset>
 
       {error && <p className="text-sm text-rose-300">{error}</p>}
 
