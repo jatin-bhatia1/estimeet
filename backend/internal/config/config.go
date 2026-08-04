@@ -55,7 +55,7 @@ func Load() (Config, error) {
 	}
 
 	cfg := Config{
-		Addr:           env("ESTIMEET_ADDR", ":8090"),
+		Addr:           listenAddr(),
 		DBPath:         env("ESTIMEET_DB_PATH", "data/estimeet.db"),
 		AllowedOrigins: splitAndTrim(env("ESTIMEET_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")),
 		AppBaseURL:     strings.TrimRight(env("ESTIMEET_APP_BASE_URL", "http://localhost:5173"), "/"),
@@ -99,6 +99,19 @@ func Load() (Config, error) {
 func isProd() bool {
 	v := strings.ToLower(env("ESTIMEET_ENV", "development"))
 	return v == "production" || v == "prod"
+}
+
+// listenAddr resolves the address to listen on. Free hosts hand the port to the
+// process as PORT and route to whatever it binds, so PORT fills in when
+// ESTIMEET_ADDR says nothing. A bare number is accepted as well as ":8080".
+func listenAddr() string {
+	if addr := env("ESTIMEET_ADDR", ""); addr != "" {
+		return addr
+	}
+	if port := env("PORT", ""); port != "" {
+		return ":" + strings.TrimPrefix(port, ":")
+	}
+	return ":8090"
 }
 
 func env(key, fallback string) string {

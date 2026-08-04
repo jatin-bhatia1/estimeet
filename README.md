@@ -263,6 +263,27 @@ It authenticates with the job's own `GITHUB_TOKEN`, so there are no registry cre
 repository. Run that image anywhere (Fly, Render, a VM, your own Kubernetes) and point
 `ESTIMEET_API_BASE_URL` at it. Package visibility is set once under the repository's **Packages** page.
 
+### Somewhere free to run the API
+
+Pages cannot host the API, so it needs a home of its own. What Estimeet asks of a host is modest but
+specific: **one instance** (the board is broadcast in memory), **WebSockets**, and **a disk that
+survives a restart**, because the whole database is one SQLite file.
+
+| Host | Cost | The catch |
+| --- | --- | --- |
+| **Render** free web service | free | Sleeps after 15 idle minutes and wakes in about a minute; the filesystem is wiped on every sleep and deploy, so sessions do not survive the night. |
+| **Oracle Cloud Always Free** VM | free, indefinitely | A real machine with a real disk, so nothing is lost — but you install Docker and a TLS proxy yourself. |
+| **Fly.io** | roughly $2/month | Closest fit: a 256MB machine plus a 1GB volume, auto-stopping when idle. There is no free allowance for new accounts. |
+
+Render is the quickest way to make the published page work, and [render.yaml](render.yaml) already
+describes the service: **New → Blueprint → this repository**. Render asks for `ESTIMEET_CONTACT_EMAIL`
+on the first deploy and generates `ESTIMEET_SECRET` itself. Take the resulting
+`https://estimeet-api.onrender.com` and set it as the repository variable `ESTIMEET_API_BASE_URL`, then
+re-run the Pages workflow.
+
+Hosts that hand the port to the process as `PORT` are supported: `ESTIMEET_ADDR` wins when it is set,
+and `PORT` fills in when it is not.
+
 ## Configuration
 
 Every backend setting can come from a **settings file** or from the **environment**, and the
@@ -288,7 +309,7 @@ ESTIMEET_ISSUES_URL    = https://github.com/jatin-bhatia1/estimeet/issues/new/ch
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `ESTIMEET_CONFIG_FILE` | `estimeet.conf` | Settings file to read before the environment. Missing is fine. |
-| `ESTIMEET_ADDR` | `:8090` | Listen address. |
+| `ESTIMEET_ADDR` | `:8090` | Listen address. Falls back to `PORT` when unset, for hosts that assign one. |
 | `ESTIMEET_DB_PATH` | `data/estimeet.db` | SQLite file; created on first run. |
 | `ESTIMEET_ALLOWED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Comma-separated CORS **and** WebSocket origin allowlist. |
 | `ESTIMEET_APP_BASE_URL` | `http://localhost:5173` | Where the Jira callback sends the browser back to. |

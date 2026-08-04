@@ -1,0 +1,35 @@
+# Render Blueprint for the API only. The UI is published to GitHub Pages by
+# .github/workflows/pages.yml; this service is what that page talks to.
+#
+# Render Dashboard -> New -> Blueprint -> pick this repository. Render will ask
+# for the values marked "sync: false" and keep them in its own store instead of
+# in this file.
+#
+# The free instance sleeps after 15 minutes without traffic and its filesystem
+# is wiped whenever it sleeps or redeploys, so sessions do not survive the
+# night. Move to a paid instance with a disk when that starts to hurt.
+services:
+  - type: web
+    name: estimeet-api
+    runtime: image
+    plan: free
+    region: frankfurt
+    image:
+      url: ghcr.io/jatin-bhatia1/estimeet:main
+    healthCheckPath: /api/health
+    envVars:
+      # The browser origin of the published UI. CORS and the WebSocket handshake
+      # both check it, so a mismatch shows up as a board that never updates.
+      - key: ESTIMEET_ALLOWED_ORIGINS
+        value: https://jatin-bhatia1.github.io
+      - key: ESTIMEET_APP_BASE_URL
+        value: https://jatin-bhatia1.github.io/estimeet
+      - key: ESTIMEET_ISSUES_URL
+        value: https://github.com/jatin-bhatia1/estimeet/issues/new/choose
+      # Asked for on first deploy. /api/config serves it to anyone, so use an
+      # address you are happy to see scraped, or leave it blank to drop the link.
+      - key: ESTIMEET_CONTACT_EMAIL
+        sync: false
+      # Encrypts stored tracker credentials. Render generates one and keeps it.
+      - key: ESTIMEET_SECRET
+        generateValue: true

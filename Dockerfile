@@ -23,8 +23,9 @@ COPY --from=api /out/estimeet /usr/local/bin/estimeet
 COPY --from=web /src/dist /srv/web
 
 USER estimeet
-ENV ESTIMEET_ADDR=":8090" \
-    ESTIMEET_STATIC_DIR="/srv/web" \
+# ESTIMEET_ADDR is deliberately unset: hosts that hand the port over as PORT can
+# then be obeyed, and :8090 is the default anyway.
+ENV ESTIMEET_STATIC_DIR="/srv/web" \
     ESTIMEET_DB_PATH="/data/estimeet.db" \
     ESTIMEET_CONFIG_FILE="/data/estimeet.conf" \
     ESTIMEET_ENV="production"
