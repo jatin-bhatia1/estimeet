@@ -3,6 +3,9 @@ backend/data/
 backend/*.exe
 backend/estimeet
 
+# Local configuration: may hold a secret or a real contact address.
+estimeet.conf
+
 # Node / Vite
 node_modules/
 frontend/dist/

@@ -1,0 +1,37 @@
+# Estimeet settings.
+#
+# Copy this file to `estimeet.conf` next to the server's working directory (or
+# point ESTIMEET_CONFIG_FILE at it) and edit what you need. Every line is
+# `NAME = value`; blank lines and lines starting with # are ignored. Anything
+# already set in the environment wins over this file, so a container can still
+# override a value with -e.
+
+# --- what the footer shows ---------------------------------------------------
+
+# Address behind the footer's "Share an idea" link. Leave it empty or commented
+# out and the link disappears entirely.
+ESTIMEET_CONTACT_EMAIL =
+
+# Where the footer's "Report a problem" link points.
+ESTIMEET_ISSUES_URL = https://github.com/jatin-bhatia1/estimeet/issues
+
+# --- server ------------------------------------------------------------------
+
+# ESTIMEET_ADDR = :8090
+# ESTIMEET_DB_PATH = data/estimeet.db
+# ESTIMEET_ALLOWED_ORIGINS = http://localhost:5173,http://127.0.0.1:5173
+# ESTIMEET_APP_BASE_URL = http://localhost:5173
+# ESTIMEET_LOG_LEVEL = info
+
+# Days of inactivity before a session is deleted. Never drops below 14.
+# ESTIMEET_ROOM_RETENTION_DAYS = 30
+
+# Required when ESTIMEET_ENV=production. Prefer passing this one through the
+# environment or a secrets manager rather than a file on disk.
+# ESTIMEET_SECRET =
+
+# --- optional Jira OAuth app -------------------------------------------------
+
+# JIRA_CLIENT_ID =
+# JIRA_CLIENT_SECRET =
+# JIRA_REDIRECT_URI = http://localhost:8090/api/jira/callback

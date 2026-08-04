@@ -26,6 +26,7 @@ USER estimeet
 ENV ESTIMEET_ADDR=":8090" \
     ESTIMEET_STATIC_DIR="/srv/web" \
     ESTIMEET_DB_PATH="/data/estimeet.db" \
+    ESTIMEET_CONFIG_FILE="/data/estimeet.conf" \
     ESTIMEET_ENV="production"
 
 # ESTIMEET_SECRET, ESTIMEET_APP_BASE_URL and ESTIMEET_ALLOWED_ORIGINS

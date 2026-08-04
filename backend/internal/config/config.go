@@ -1,4 +1,5 @@
-// Package config loads runtime configuration from environment variables.
+// Package config loads runtime configuration from a settings file and the
+// environment, with the environment taking precedence.
 package config
 
 import (
@@ -47,7 +48,12 @@ func (j JiraConfig) Enabled() bool {
 }
 
 // Load reads the environment and applies development-friendly defaults.
+// Settings may also come from a file (see loadFile); the environment wins.
 func Load() (Config, error) {
+	if err := loadFile(env("ESTIMEET_CONFIG_FILE", DefaultFile)); err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
 		Addr:           env("ESTIMEET_ADDR", ":8090"),
 		DBPath:         env("ESTIMEET_DB_PATH", "data/estimeet.db"),

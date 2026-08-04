@@ -262,11 +262,29 @@ repository. Run that image anywhere (Fly, Render, a VM, your own Kubernetes) and
 
 ## Configuration
 
-All backend settings are environment variables. Every one has a working default for local development,
-so the app runs with none of them set.
+Every backend setting can come from a **settings file** or from the **environment**, and the
+environment always wins. Both use the same names, and every one has a working default for local
+development, so the app runs with none of them set.
+
+```powershell
+cd backend
+copy estimeet.conf.example estimeet.conf   # then edit it
+```
+
+The server reads `estimeet.conf` from its working directory, or from `ESTIMEET_CONFIG_FILE` if you
+point that somewhere else. The format is `NAME = value`, one per line; `#` starts a comment, and quotes
+keep surrounding spaces. The file is gitignored, because it is where the footer's contact address and
+any secrets end up. The container image looks for it at `/data/estimeet.conf`, which is already a
+volume — drop the file next to the database and restart.
+
+```conf
+ESTIMEET_CONTACT_EMAIL = feedback@estimeet.app
+ESTIMEET_ISSUES_URL    = https://github.com/jatin-bhatia1/estimeet/issues/new/choose
+```
 
 | Variable | Default | Notes |
 | --- | --- | --- |
+| `ESTIMEET_CONFIG_FILE` | `estimeet.conf` | Settings file to read before the environment. Missing is fine. |
 | `ESTIMEET_ADDR` | `:8090` | Listen address. |
 | `ESTIMEET_DB_PATH` | `data/estimeet.db` | SQLite file; created on first run. |
 | `ESTIMEET_ALLOWED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Comma-separated CORS **and** WebSocket origin allowlist. |
@@ -275,7 +293,7 @@ so the app runs with none of them set.
 | `ESTIMEET_SECRET` | dev fallback | Key for encrypting tracker credentials. **Required** when `ESTIMEET_ENV=production`; minimum 16 characters. |
 | `ESTIMEET_ENV` | `development` | `production` makes `ESTIMEET_SECRET` mandatory. |
 | `ESTIMEET_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`. |
-| `ESTIMEET_CONTACT_EMAIL` | *(empty)* | Shown in the footer as a mailto link. Left out entirely when unset. |
+| `ESTIMEET_CONTACT_EMAIL` | *(empty)* | Address behind the footer's *Share an idea* link. The link is left out entirely when unset. |
 | `ESTIMEET_ISSUES_URL` | `https://github.com/jatin-bhatia1/estimeet/issues` | Where the footer's *Report a problem* link points. |
 | `ESTIMEET_ROOM_RETENTION_DAYS` | `30` | Days of inactivity before a session and everything in it is deleted. Values below 14 are raised to 14. |
 | `JIRA_CLIENT_ID` | — | Optional. Adds **Connect with Atlassian** (OAuth) next to the API-token form; all three are needed. |
