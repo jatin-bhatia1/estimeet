@@ -1,0 +1,67 @@
+name: Deploy the UI to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; a newer commit waits for the running one instead of
+# racing it.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/configure-pages@v5
+
+      - name: Install
+        working-directory: frontend
+        run: npm ci
+
+      # Pages serves static files only, so the UI has to be told where the API
+      # lives. Set the repository variable ESTIMEET_API_BASE_URL to the public
+      # origin of your backend, for example https://api.estimeet.app. Without it
+      # the site still builds, but every request goes to Pages itself and fails.
+      - name: Build
+        working-directory: frontend
+        env:
+          VITE_BASE_PATH: ${{ vars.ESTIMEET_PAGES_BASE_PATH || format('/{0}/', github.event.repository.name) }}
+          VITE_API_BASE_URL: ${{ vars.ESTIMEET_API_BASE_URL }}
+        run: npm run build
+
+      # Pages has no router: a deep link such as /room/ABC123 would 404. Serving
+      # the same document as the 404 page hands the URL back to React Router.
+      - name: Add the single-page fallback
+        run: cp frontend/dist/index.html frontend/dist/404.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+
+  deploy:
+    name: Publish
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

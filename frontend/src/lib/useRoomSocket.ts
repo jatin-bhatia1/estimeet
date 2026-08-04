@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { socketUrl } from './origin'
 import type { RoomState } from './types'
 
 export type ConnectionStatus = 'connecting' | 'open' | 'reconnecting' | 'offline'
@@ -43,8 +44,7 @@ export function useRoomSocket(code: string, token: string | null) {
       if (disposed) return
       setStatus(attempt === 0 ? 'connecting' : 'reconnecting')
 
-      const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws'
-      const url = `${scheme}://${window.location.host}/api/rooms/${encodeURIComponent(code)}/ws`
+      const url = socketUrl(`/rooms/${encodeURIComponent(code)}/ws`)
       // The bearer token travels as a subprotocol: a browser cannot set headers
       // on a WebSocket handshake, and a query string would leak into access logs.
       const socket = new WebSocket(url, ['estimeet.v1', `bearer.${token}`])

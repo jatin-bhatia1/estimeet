@@ -18,10 +18,11 @@ It runs in two modes:
 
 [Quick start](#quick-start) · [Prerequisites](#prerequisites) · [Stack](#stack) · [Layout](#layout) ·
 [Running it locally](#running-it-locally) · [Using the app](#using-the-app) ·
-[Tests and checks](#tests-and-checks) · [Configuration](#configuration) ·
-[Deploying to estimeet.app](#deploying-to-estimeetapp) · [Backlog import](#backlog-import-optional) ·
+[Tests and checks](#tests-and-checks) · [Continuous integration](#continuous-integration) ·
+[Configuration](#configuration) · [Deploying to estimeet.app](#deploying-to-estimeetapp) ·
+[Publishing from GitHub](#publishing-from-github) · [Backlog import](#backlog-import-optional) ·
 [How the rules work](#how-the-rules-work) · [Security notes](#security-notes) ·
-[Troubleshooting](#troubleshooting)
+[Troubleshooting](#troubleshooting) · [Licence](#licence)
 
 ## Quick start
 
@@ -172,10 +173,11 @@ Sessions survive a refresh: your token is kept in `localStorage`, and **Leave** 
 
 ### Who is expected, and who is here
 
-A host can optionally say how many people are joining and, if they know them, list the names — the
-**+ expected** link next to *Team* in the sidebar. The room then shows `Team (4 of 6)` plus a muted
-*Not here yet* list, and synchronous sessions get an **At the table** strip above the deck showing
-everyone who has joined, green once they have played their card and dimmed while they are offline.
+When you start a session you can say how many people are joining and, if you know them, list their
+names — the **Who are you expecting?** block on the create form. You can change it later from the
+sidebar with **+ who is expected**. The room then shows `Team (4 of 6)` plus a muted *Not here yet*
+list, and synchronous sessions get an **At the table** strip above the deck showing everyone who has
+joined, green once they have played their card and dimmed while they are offline.
 
 The roster is a memory aid only. Names are matched against display names purely to grey out who is
 missing; they never let anyone in and never keep anyone out.
@@ -200,13 +202,63 @@ go test ./...
 cd frontend
 npm run build
 
-# end-to-end: 44 assertions against a running API
+# end-to-end: 45 assertions against a running API
 pwsh ./scripts/smoke.ps1
 ```
 
 The smoke test needs the API up. It covers both modes, the auto-reveal rules, observer handling,
 host-only permissions, hidden votes before the reveal, and cross-room token isolation. Point it
 elsewhere with `$env:ESTIMEET_API_BASE = 'https://estimeet.app/api'`.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push to `main` and every pull request, and does exactly what
+you would do by hand:
+
+| Job | What it runs |
+| --- | --- |
+| `backend` | `gofmt -l`, `go vet ./...`, `go test -race ./...` |
+| `frontend` | `npm ci` then `npm run build` (which type-checks first) |
+| `smoke` | starts the API, waits for `/api/health`, then runs `scripts/smoke.ps1` |
+| `image` | builds the Dockerfile without pushing, so a broken image is caught in the PR |
+
+The smoke job runs only after the other two pass, so a failure points straight at the layer that broke.
+
+## Publishing from GitHub
+
+Two more workflows put the app in front of people. Both need a one-off setting in the repository.
+
+### The UI on GitHub Pages
+
+`.github/workflows/pages.yml` builds the UI on every push to `main` and publishes it to Pages. Enable
+it once under **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+
+Pages serves static files only — it cannot run the Go API or a WebSocket. Set the repository variable
+**`ESTIMEET_API_BASE_URL`** (Settings → Secrets and variables → Actions → Variables) to the public
+origin of your backend, for example `https://api.estimeet.app`, and add that Pages URL to the API's
+`ESTIMEET_ALLOWED_ORIGINS` so CORS and the WebSocket handshake accept it. Without the variable the site
+still builds, but every request goes back to Pages and fails.
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `ESTIMEET_API_BASE_URL` | *(empty)* | Public origin of the API the published UI should talk to. |
+| `ESTIMEET_PAGES_BASE_PATH` | `/<repository>/` | Set to `/` when the site is served from a custom domain. |
+
+The build also copies `index.html` to `404.html`, because Pages has no router and a deep link like
+`/room/ABC123` would otherwise be a hard 404.
+
+### The API as a container image
+
+`.github/workflows/image.yml` builds the Dockerfile for `linux/amd64` and `linux/arm64` and pushes it
+to the GitHub Container Registry on every push to `main` and every `v*` tag:
+
+```powershell
+docker pull ghcr.io/jatin-bhatia1/estimeet:main
+```
+
+It authenticates with the job's own `GITHUB_TOKEN`, so there are no registry credentials stored in the
+repository. Run that image anywhere (Fly, Render, a VM, your own Kubernetes) and point
+`ESTIMEET_API_BASE_URL` at it. Package visibility is set once under the repository's **Packages** page.
 
 ## Configuration
 
@@ -401,3 +453,14 @@ Fibonacci card to the average). "Vote again" clears the round and reopens the to
 | Jira returns `invalid redirect_uri` | `JIRA_REDIRECT_URI` must match the Atlassian app registration character for character. |
 | `npm install` warns about blocked install scripts | npm 12 blocks postinstall by default. Run `npm install-scripts approve esbuild` if the build fails. |
 | Want a clean slate | Stop the API and delete `backend/data/estimeet.db`. |
+
+## Licence
+
+Estimeet is released under the [PolyForm Perimeter License 1.0.1](LICENSE.md).
+
+In plain terms: **use it for anything you like — personally, in your team, inside your company — but
+do not sell it or run it as a product that competes with Estimeet.** You may read the source, run it,
+change it and share your changes; you may not repackage it as your own planning-poker product or
+service, paid or free. Keep the copyright notice with any copy you pass on.
+
+Want to do something the licence does not allow? Ask — the answer may well be yes.
