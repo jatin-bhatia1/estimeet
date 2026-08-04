@@ -230,10 +230,11 @@ Two more workflows put the app in front of people. Both need a one-off setting i
 
 ### The UI on GitHub Pages
 
-`.github/workflows/pages.yml` builds the UI on every push to `main` and publishes it to Pages. The
-workflow asks for Pages to be enabled itself (`enablement: true`), but if the first run still fails
-with *Get Pages site failed*, turn it on under
-**Settings → Pages → Build and deployment → Source: GitHub Actions** and re-run it.
+`.github/workflows/pages.yml` builds the UI on every push to `main` and publishes it to Pages. Turn
+Pages on once under **Settings → Pages → Build and deployment → Source: GitHub Actions**, then re-run
+the workflow. Until that switch is flipped every run stops after a few seconds with *Get Pages site
+failed*, and the workflow cannot flip it for you: creating a Pages site needs admin rights that the
+job's `GITHUB_TOKEN` does not have.
 
 Pages serves static files only — it cannot run the Go API or a WebSocket. Set the repository variable
 **`ESTIMEET_API_BASE_URL`** (Settings → Secrets and variables → Actions → Variables) to the public
