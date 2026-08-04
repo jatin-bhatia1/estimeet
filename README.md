@@ -230,8 +230,10 @@ Two more workflows put the app in front of people. Both need a one-off setting i
 
 ### The UI on GitHub Pages
 
-`.github/workflows/pages.yml` builds the UI on every push to `main` and publishes it to Pages. Enable
-it once under **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+`.github/workflows/pages.yml` builds the UI on every push to `main` and publishes it to Pages. The
+workflow asks for Pages to be enabled itself (`enablement: true`), but if the first run still fails
+with *Get Pages site failed*, turn it on under
+**Settings → Pages → Build and deployment → Source: GitHub Actions** and re-run it.
 
 Pages serves static files only — it cannot run the Go API or a WebSocket. Set the repository variable
 **`ESTIMEET_API_BASE_URL`** (Settings → Secrets and variables → Actions → Variables) to the public
@@ -327,8 +329,34 @@ docker run -d --name estimeet -p 8090:8090 `
   estimeet:latest
 ```
 
-The image already sets `ESTIMEET_ENV=production`, `ESTIMEET_STATIC_DIR=/srv/web` and
-`ESTIMEET_DB_PATH=/data/estimeet.db`. **Mount `/data` on a real volume** — that is the whole database.
+The image already sets `ESTIMEET_ENV=production`, `ESTIMEET_STATIC_DIR=/srv/web`,
+`ESTIMEET_DB_PATH=/data/estimeet.db` and `ESTIMEET_CONFIG_FILE=/data/estimeet.conf`.
+**Mount `/data` on a real volume** — that is the whole database.
+
+### Getting the settings to the deployed API
+
+The footer's contact address and issues link are read by the **API**, not baked into the UI, so they
+have to reach whatever host runs the container. Any of these works:
+
+```powershell
+# 1. Ship the file into the data volume, then restart.
+docker cp backend/estimeet.conf estimeet:/data/estimeet.conf; docker restart estimeet
+
+# 2. Mount it read-only from the host instead.
+docker run -d -p 8090:8090 -v estimeet-data:/data `
+  -v C:/etc/estimeet.conf:/data/estimeet.conf:ro estimeet:latest
+
+# 3. No file at all - hand the same names to the platform.
+docker run -d -p 8090:8090 -e ESTIMEET_CONTACT_EMAIL='...' -e ESTIMEET_ISSUES_URL='...' estimeet:latest
+```
+
+On a PaaS with no persistent filesystem (Fly, Render, Railway, Cloud Run, App Service) use the third
+form: their environment or secrets UI, same variable names. Keep `ESTIMEET_SECRET` there too rather
+than in the file — the file is convenient, not a secret store.
+
+`GET /api/config` serves the contact address publicly, so it will be scraped. Prefer an alias or a
+shared inbox over a personal address, or leave `ESTIMEET_CONTACT_EMAIL` empty and let the issues link
+carry the feedback on its own.
 
 ### Without Docker
 
