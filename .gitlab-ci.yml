@@ -44,8 +44,19 @@ workflow:
 
 before_script:
   - |
-    echo "$ECR_REPO_URL" | grep -Eq '^[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com/.+$' || {
-      echo "ECR_REPO_URL is not <account-id>.dkr.ecr.<region>.amazonaws.com/<repository>; add it under Settings -> CI/CD -> Variables."
+    # A CI/CD variable keeps exactly what was pasted into the form, and a
+    # trailing space or carriage return survives every echo invisibly. It also
+    # slips past a `.+$` check, because $ matches after it - and then kaniko
+    # rejects the repository name for a character it will not print. So strip
+    # first, validate second.
+    ECR_REPO_URL="$(printf '%s' "$ECR_REPO_URL" | tr -d '[:space:]')"
+    AWS_GITLAB_ROLE_NAME="$(printf '%s' "$AWS_GITLAB_ROLE_NAME" | tr -d '[:space:]')"
+    IMAGE_TAG="$(printf '%s' "$IMAGE_TAG" | tr -d '[:space:]')"
+    export ECR_REPO_URL AWS_GITLAB_ROLE_NAME IMAGE_TAG
+
+    echo "$ECR_REPO_URL" | grep -Eqx '[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com/[a-z0-9._/-]+' || {
+      echo "ECR_REPO_URL is not <account-id>.dkr.ecr.<region>.amazonaws.com/<repository>; check it under Settings -> CI/CD -> Variables."
+      echo "Got: [$ECR_REPO_URL]"
       exit 1
     }
     if [ -z "$AWS_GITLAB_ROLE_NAME" ]; then
