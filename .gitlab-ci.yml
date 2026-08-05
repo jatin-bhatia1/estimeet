@@ -1,0 +1,103 @@
+# Builds the Estimeet image and pushes it to ECR, for deployments driven from
+# code.siemens.com. GitHub Actions still builds the same Dockerfile and pushes
+# to GHCR; neither pipeline knows about the other.
+#
+# One image is enough: the Dockerfile builds the React UI and the Go API and
+# ships them together, with the API serving the built UI. So one ECR repository,
+# one container in the task.
+#
+# Everything marked CONFIGURE ME has to be filled in before the first run.
+
+stages: [assume_role, push]
+
+variables:
+  # CONFIGURE ME: the region your ECR repository lives in.
+  AWS_REGION: "eu-west-1"
+  # Deployments follow the `latest` tag; the commit tag is pushed alongside it
+  # so a running task can be traced back to a commit.
+  IMAGE_TAG: "latest"
+  # Base images are pulled through this prefix. Point it at the GitLab
+  # dependency proxy if the runner cannot reach Docker Hub.
+  IMAGE_PREFIX: "docker.io"
+  # Corporate proxy. $CODE_PROXY comes from the runner environment; blank it out
+  # if you do not need one.
+  HTTP_PROXY: "$CODE_PROXY"
+  HTTPS_PROXY: "$CODE_PROXY"
+  NO_PROXY: "127.0.0.1,localhost,.siemens.de,.siemens.net,.siemens.com,.siemens.io"
+
+workflow:
+  rules:
+    # CONFIGURE ME: per branch, the IAM role GitLab assumes through OIDC and the
+    # ECR repository to push to. The role name is on the Gitlab Repository
+    # component in the SDC canvas, the repository URL on the App on Fargate one.
+    # The account id is parsed out of ECR_REPO_URL, so the role has to live in
+    # the same account. Delete the branches you do not deploy.
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      variables:
+        AWS_GITLAB_ROLE_NAME: "CHANGEME-main-role-name"
+        ECR_REPO_URL: "CHANGEME.dkr.ecr.eu-west-1.amazonaws.com/CHANGEME-repo"
+    - when: always
+
+before_script:
+  - |
+    echo "$ECR_REPO_URL" | grep -Eq '^[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com/.+$' || {
+      echo "ECR_REPO_URL is not <account-id>.dkr.ecr.<region>.amazonaws.com/<repository>: $ECR_REPO_URL"
+      exit 1
+    }
+    if [ -z "$AWS_GITLAB_ROLE_NAME" ]; then
+      echo "AWS_GITLAB_ROLE_NAME is not set; fill it in under workflow.rules or as a CI/CD variable."
+      exit 1
+    fi
+    export AWS_ROLE_ARN="arn:aws:iam::$(echo "$ECR_REPO_URL" | cut -d'.' -f1):role/${AWS_GITLAB_ROLE_NAME}"
+    echo "Using AWS_ROLE_ARN=$AWS_ROLE_ARN"
+
+assume_role:
+  stage: assume_role
+  image:
+    name: amazon/aws-cli:2.11.2
+    entrypoint: [""]
+  variables: { GIT_STRATEGY: none }
+  id_tokens:
+    AWS_DEPLOY_TOKEN:
+      # CONFIGURE ME: must match the audience on the AWS IAM OIDC provider that
+      # trusts this GitLab instance.
+      aud: https://code.siemens.com
+  script:
+    - >
+      AWS_CREDENTIALS=$(aws sts assume-role-with-web-identity
+      --role-arn "${AWS_ROLE_ARN}"
+      --role-session-name "GitLabRunner-${CI_PROJECT_ID}-${CI_PIPELINE_ID}"
+      --web-identity-token "${AWS_DEPLOY_TOKEN}"
+      --duration-seconds 1800
+      --region "${AWS_REGION}"
+      --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]'
+      --output text)
+    - printf "AWS_ACCESS_KEY_ID=%s\nAWS_SECRET_ACCESS_KEY=%s\nAWS_SESSION_TOKEN=%s\nAWS_REGION=%s\n" \
+      ${AWS_CREDENTIALS} "${AWS_REGION}" > auth.env
+  artifacts:
+    reports: { dotenv: auth.env }
+    expire_in: 30m
+
+push_with_kaniko:
+  stage: push
+  needs: ["assume_role"]
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  script:
+    - export http_proxy="${HTTP_PROXY}" https_proxy="${HTTPS_PROXY}" no_proxy="${NO_PROXY}"
+    # The npm install and the Go module download happen inside the build, so the
+    # proxy has to reach them too. HTTP_PROXY and friends are predefined build
+    # arguments, which is why they are not declared in the Dockerfile.
+    - >
+      /kaniko/executor
+      --dockerfile=Dockerfile
+      --context="$CI_PROJECT_DIR"
+      --destination="${ECR_REPO_URL}:${IMAGE_TAG}"
+      --destination="${ECR_REPO_URL}:${CI_COMMIT_SHORT_SHA}"
+      --build-arg IMAGE_PREFIX="${IMAGE_PREFIX}"
+      --build-arg HTTP_PROXY="${HTTP_PROXY}"
+      --build-arg HTTPS_PROXY="${HTTPS_PROXY}"
+      --build-arg NO_PROXY="${NO_PROXY}"
+      --snapshot-mode=redo
+      --use-new-run

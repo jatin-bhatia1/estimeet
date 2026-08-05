@@ -300,7 +300,7 @@ the account, region and file system ids. What Fargate needs around it:
   service with `desiredCount` 1 and a deployment configuration of `minimumHealthyPercent` 0 /
   `maximumPercent` 100. Rolling deploys that briefly run two tasks will corrupt state.
 - **An Application Load Balancer.** It speaks WebSocket without extra configuration; point the target
-  group (type `ip`, port 8090) at `/api/health`. The server pings every 25 seconds, comfortably inside
+  group (type `ip`, port 8000) at `/health`. The server pings every 25 seconds, comfortably inside
   the ALB's 60-second idle timeout, so live boards stay connected.
 - **HTTPS.** An ACM certificate on a 443 listener. The published UI is served over HTTPS, and a browser
   will refuse a `ws://` connection from an `https://` page.
@@ -312,6 +312,41 @@ the account, region and file system ids. What Fargate needs around it:
 
 Then set the repository variable `ESTIMEET_API_BASE_URL` to the load balancer's hostname and re-run the
 Pages workflow.
+
+### On a managed *App on Fargate* (Siemens SDC)
+
+Here the platform owns the task definition, the load balancer and the certificate; the repository only
+has to produce an image and push it to ECR. [.gitlab-ci.yml](.gitlab-ci.yml) does that — assume an AWS
+role through OIDC, then build with Kaniko — and needs three values filled in: `AWS_REGION`, the
+`AWS_GITLAB_ROLE_NAME` from the *Gitlab Repository* component and the `ECR_REPO_URL` from the *App on
+Fargate* component.
+
+**One image, one ECR repository.** The Dockerfile builds the React UI and the Go API and ships them in
+the same image, with the API serving the built files, so there is nothing to split into a second
+container.
+
+What this platform imposes, and how the repo answers it:
+
+| It requires | Here |
+| --- | --- |
+| The container listens on **8000** — the auth sidecar proxies to `127.0.0.1:8000` | The image sets `PORT=8000` |
+| An unauthenticated **`/health`** for the target group | Served at the root as well as `/api/health` |
+| A **`latest`** tag to deploy | Pushed, alongside the commit sha |
+| No persistent volume | Set `ESTIMEET_DB_URL`; see below |
+
+Two things to know before deploying:
+
+- **The task has no EFS volume**, so the SQLite file lives on the container's own disk and disappears
+  with every deploy. Point `ESTIMEET_DB_URL` at a Postgres database, or accept that sessions are lost
+  on each release.
+- **The sidecar has to forward WebSocket upgrades**, or boards will fall back to nothing — the whole
+  live view is one socket. If it terminates the connection instead, set `ESTIMEET_ALLOWED_ORIGINS` to
+  the app's public URL first: the origin check compares against the browser's origin, and a sidecar
+  that rewrites `Host` breaks the same-origin shortcut.
+
+Set `ESTIMEET_APP_BASE_URL` and `ESTIMEET_ALLOWED_ORIGINS` to the `subdomainUrl` the SDC console shows,
+and `ESTIMEET_SECRET` to something random and permanent — regenerating it invalidates every stored
+tracker credential.
 
 ### PostgreSQL instead of SQLite
 
@@ -389,7 +424,7 @@ origin** — which also means no CORS and no cross-origin WebSocket to worry abo
 ```powershell
 docker build -t estimeet:latest .
 
-docker run -d --name estimeet -p 8090:8090 `
+docker run -d --name estimeet -p 8090:8000 `
   -v estimeet-data:/data `
   -e ESTIMEET_SECRET='<32+ random chars>' `
   -e ESTIMEET_APP_BASE_URL='https://estimeet.app' `
@@ -404,6 +439,10 @@ The image already sets `ESTIMEET_ENV=production`, `ESTIMEET_STATIC_DIR=/srv/web`
 `ESTIMEET_DB_PATH=/data/estimeet.db` and `ESTIMEET_CONFIG_FILE=/data/estimeet.conf`.
 **Mount `/data` on a real volume** — that is the whole database.
 
+**The container listens on 8000**, not the 8090 used in development: it sets `PORT=8000`, which
+`ESTIMEET_ADDR` falls back to. Managed Fargate platforms put an authenticating sidecar in front of the
+container and proxy to `127.0.0.1:8000`, and a host that assigns its own `PORT` still overrides it.
+
 ### Getting the settings to the deployed API
 
 The footer's contact address and issues link are read by the **API**, not baked into the UI, so they
@@ -414,11 +453,11 @@ have to reach whatever host runs the container. Any of these works:
 docker cp backend/estimeet.conf estimeet:/data/estimeet.conf; docker restart estimeet
 
 # 2. Mount it read-only from the host instead.
-docker run -d -p 8090:8090 -v estimeet-data:/data `
+docker run -d -p 8090:8000 -v estimeet-data:/data `
   -v C:/etc/estimeet.conf:/data/estimeet.conf:ro estimeet:latest
 
 # 3. No file at all - hand the same names to the platform.
-docker run -d -p 8090:8090 -e ESTIMEET_CONTACT_EMAIL='...' -e ESTIMEET_ISSUES_URL='...' estimeet:latest
+docker run -d -p 8090:8000 -e ESTIMEET_CONTACT_EMAIL='...' -e ESTIMEET_ISSUES_URL='...' estimeet:latest
 ```
 
 On a PaaS with no persistent filesystem (Fly, Render, Railway, Cloud Run, App Service) use the third

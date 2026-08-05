@@ -43,9 +43,7 @@ func NewRouter(cfg config.Config, svc *service.Service) http.Handler {
 	}))
 
 	r.Route("/api", func(r chi.Router) {
-		r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
-		})
+		r.Get("/health", s.handleHealth)
 		r.Get("/config", s.handleAppConfig)
 
 		r.With(joinLimiter.middleware).Post("/rooms", s.handleCreateRoom)
@@ -92,8 +90,17 @@ func NewRouter(cfg config.Config, svc *service.Service) http.Handler {
 		})
 	})
 
+	// The same check at the root, because load balancer target groups are
+	// usually configured for /health and some managed platforms do not let you
+	// change the path.
+	r.Get("/health", s.handleHealth)
+
 	r.NotFound(s.notFound)
 	return r
+}
+
+func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
 // notFound serves the SPA for unknown non-API paths when a static build is configured.
