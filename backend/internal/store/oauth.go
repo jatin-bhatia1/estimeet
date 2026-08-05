@@ -25,11 +25,11 @@ type OAuthState struct {
 
 // SaveOAuthState persists a pending authorization request and prunes stale ones.
 func (s *Store) SaveOAuthState(ctx context.Context, st OAuthState) error {
-	if _, err := s.db.ExecContext(ctx,
+	if _, err := s.exec(ctx,
 		`DELETE FROM oauth_states WHERE expires_at < ?`, toMillis(time.Now())); err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx,
+	_, err := s.exec(ctx,
 		`INSERT INTO oauth_states (state, room_id, participant_id, code_verifier, expires_at) VALUES (?, ?, ?, ?, ?)`,
 		st.State, st.RoomID, st.ParticipantID, st.CodeVerifier, toMillis(st.ExpiresAt))
 	return err
@@ -48,7 +48,7 @@ func (s *Store) ConsumeOAuthState(ctx context.Context, state string) (OAuthState
 		expires int64
 	)
 	err = tx.QueryRowContext(ctx,
-		`SELECT state, room_id, participant_id, code_verifier, expires_at FROM oauth_states WHERE state = ?`, state).
+		s.rebind(`SELECT state, room_id, participant_id, code_verifier, expires_at FROM oauth_states WHERE state = ?`), state).
 		Scan(&st.State, &st.RoomID, &st.ParticipantID, &st.CodeVerifier, &expires)
 	if errors.Is(err, sql.ErrNoRows) {
 		return OAuthState{}, domain.ErrNotFound
@@ -56,7 +56,7 @@ func (s *Store) ConsumeOAuthState(ctx context.Context, state string) (OAuthState
 	if err != nil {
 		return OAuthState{}, err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM oauth_states WHERE state = ?`, state); err != nil {
+	if _, err := tx.ExecContext(ctx, s.rebind(`DELETE FROM oauth_states WHERE state = ?`), state); err != nil {
 		return OAuthState{}, err
 	}
 	if err := tx.Commit(); err != nil {

@@ -23,7 +23,7 @@ func (s *Store) CreateRoom(ctx context.Context, r domain.Room) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx,
+	_, err = s.exec(ctx,
 		`INSERT INTO rooms (`+roomColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.ID, r.Code, r.Name, string(r.Mode), string(deck),
 		nullString(r.CurrentTopicID), r.AutoReveal, toMillis(r.CreatedAt), nullTime(r.ClosedAt),
@@ -34,13 +34,13 @@ func (s *Store) CreateRoom(ctx context.Context, r domain.Room) error {
 
 // RoomByCode looks a room up by its shareable code.
 func (s *Store) RoomByCode(ctx context.Context, code string) (domain.Room, error) {
-	return s.scanRoom(s.db.QueryRowContext(ctx,
+	return s.scanRoom(s.queryRow(ctx,
 		`SELECT `+roomColumns+` FROM rooms WHERE code = ?`, domain.NormalizeCode(code)))
 }
 
 // RoomByID looks a room up by its internal identifier.
 func (s *Store) RoomByID(ctx context.Context, id string) (domain.Room, error) {
-	return s.scanRoom(s.db.QueryRowContext(ctx,
+	return s.scanRoom(s.queryRow(ctx,
 		`SELECT `+roomColumns+` FROM rooms WHERE id = ?`, id))
 }
 
@@ -81,7 +81,7 @@ func (s *Store) SetRoster(ctx context.Context, roomID string, size int, names []
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx,
+	_, err = s.exec(ctx,
 		`UPDATE rooms SET expected_size = ?, expected_names = ? WHERE id = ?`, size, encoded, roomID)
 	return err
 }
@@ -90,9 +90,14 @@ func (s *Store) SetRoster(ctx context.Context, roomID string, size int, names []
 // belonging to them goes with them through ON DELETE CASCADE, so a purged
 // session leaves no participants, topics or votes behind.
 func (s *Store) PurgeStaleRooms(ctx context.Context, cutoff time.Time) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `
+	// SQLite's variadic MAX() is spelled GREATEST() everywhere else.
+	largest := "MAX"
+	if s.dialect == dialectPostgres {
+		largest = "GREATEST"
+	}
+	res, err := s.exec(ctx, `
 		DELETE FROM rooms
-		 WHERE MAX(
+		 WHERE `+largest+`(
 		           created_at,
 		           COALESCE((SELECT MAX(last_seen_at) FROM participants WHERE room_id = rooms.id), 0),
 		           COALESCE((SELECT MAX(created_at) FROM topics WHERE room_id = rooms.id), 0)
@@ -117,14 +122,14 @@ func marshalNames(names []string) (string, error) {
 
 // SetCurrentTopic points a synchronous room at the topic being estimated.
 func (s *Store) SetCurrentTopic(ctx context.Context, roomID string, topicID *string) error {
-	_, err := s.db.ExecContext(ctx,
+	_, err := s.exec(ctx,
 		`UPDATE rooms SET current_topic_id = ? WHERE id = ?`, nullString(topicID), roomID)
 	return err
 }
 
 // UpdateRoomSettings changes the mutable room options.
 func (s *Store) UpdateRoomSettings(ctx context.Context, roomID, name string, autoReveal bool) error {
-	_, err := s.db.ExecContext(ctx,
+	_, err := s.exec(ctx,
 		`UPDATE rooms SET name = ?, auto_reveal = ? WHERE id = ?`, name, autoReveal, roomID)
 	return err
 }
@@ -135,7 +140,7 @@ const participantColumns = `id, room_id, name, is_host, is_observer, joined_at, 
 
 // CreateParticipant stores a participant together with the SHA-256 hash of their bearer token.
 func (s *Store) CreateParticipant(ctx context.Context, p domain.Participant, tokenHash string) error {
-	_, err := s.db.ExecContext(ctx,
+	_, err := s.exec(ctx,
 		`INSERT INTO participants (id, room_id, name, token_hash, is_host, is_observer, joined_at, last_seen_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.ID, p.RoomID, p.Name, tokenHash, p.IsHost, p.IsObserver, toMillis(p.JoinedAt), toMillis(p.LastSeenAt),
@@ -145,21 +150,23 @@ func (s *Store) CreateParticipant(ctx context.Context, p domain.Participant, tok
 
 // ParticipantByTokenHash resolves a bearer token to its participant.
 func (s *Store) ParticipantByTokenHash(ctx context.Context, tokenHash string) (domain.Participant, error) {
-	return s.scanParticipant(s.db.QueryRowContext(ctx,
+	return s.scanParticipant(s.queryRow(ctx,
 		`SELECT `+participantColumns+` FROM participants WHERE token_hash = ?`, tokenHash))
 }
 
 // ParticipantByID fetches one participant.
 func (s *Store) ParticipantByID(ctx context.Context, id string) (domain.Participant, error) {
-	return s.scanParticipant(s.db.QueryRowContext(ctx,
+	return s.scanParticipant(s.queryRow(ctx,
 		`SELECT `+participantColumns+` FROM participants WHERE id = ?`, id))
 }
 
 // ParticipantByRoomAndName finds an existing participant so a reconnecting user
-// can reclaim their seat instead of creating a duplicate.
+// can reclaim their seat instead of creating a duplicate. The comparison is
+// lowercased rather than collated, because the two databases spell that
+// differently and neither has an index on the name.
 func (s *Store) ParticipantByRoomAndName(ctx context.Context, roomID, name string) (domain.Participant, error) {
-	return s.scanParticipant(s.db.QueryRowContext(ctx,
-		`SELECT `+participantColumns+` FROM participants WHERE room_id = ? AND name = ? COLLATE NOCASE`, roomID, name))
+	return s.scanParticipant(s.queryRow(ctx,
+		`SELECT `+participantColumns+` FROM participants WHERE room_id = ? AND lower(name) = lower(?)`, roomID, name))
 }
 
 func (s *Store) scanParticipant(row *sql.Row) (domain.Participant, error) {
@@ -182,7 +189,7 @@ func (s *Store) scanParticipant(row *sql.Row) (domain.Participant, error) {
 
 // ListParticipants returns every participant of a room in join order.
 func (s *Store) ListParticipants(ctx context.Context, roomID string) ([]domain.Participant, error) {
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := s.query(ctx,
 		`SELECT `+participantColumns+` FROM participants WHERE room_id = ? ORDER BY joined_at ASC`, roomID)
 	if err != nil {
 		return nil, err
@@ -208,20 +215,20 @@ func (s *Store) ListParticipants(ctx context.Context, roomID string) ([]domain.P
 
 // TouchParticipant records liveness for presence tracking.
 func (s *Store) TouchParticipant(ctx context.Context, id string, at time.Time) error {
-	_, err := s.db.ExecContext(ctx,
+	_, err := s.exec(ctx,
 		`UPDATE participants SET last_seen_at = ? WHERE id = ?`, toMillis(at), id)
 	return err
 }
 
 // UpdateParticipant changes the display name and observer flag.
 func (s *Store) UpdateParticipant(ctx context.Context, id, name string, isObserver bool) error {
-	_, err := s.db.ExecContext(ctx,
+	_, err := s.exec(ctx,
 		`UPDATE participants SET name = ?, is_observer = ? WHERE id = ?`, name, isObserver, id)
 	return err
 }
 
 // DeleteParticipant removes a participant and, by cascade, their votes.
 func (s *Store) DeleteParticipant(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM participants WHERE id = ?`, id)
+	_, err := s.exec(ctx, `DELETE FROM participants WHERE id = ?`, id)
 	return err
 }

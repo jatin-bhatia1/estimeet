@@ -313,6 +313,25 @@ the account, region and file system ids. What Fargate needs around it:
 Then set the repository variable `ESTIMEET_API_BASE_URL` to the load balancer's hostname and re-run the
 Pages workflow.
 
+### PostgreSQL instead of SQLite
+
+Set `ESTIMEET_DB_URL` to a `postgres://` URL and the server uses that instead of the SQLite file;
+leave it unset and nothing changes. The schema is created on connect, so an empty database is all the
+server needs.
+
+This exists for platforms where a file is the awkward part. On Fargate, SQLite means an EFS volume,
+exactly one task, and no rolling deploys; with Postgres the task keeps no state, so it can be scaled
+and redeployed normally. AWS's serverless relational option is **Aurora Serverless v2 (PostgreSQL)** —
+a cluster with a minimum capacity of 0 ACU scales to zero when idle, and takes a few seconds to wake
+on the first query, which the server waits out for up to 45 seconds at startup.
+
+The two databases are kept behind one set of queries: they are written with `?` placeholders and
+rewritten to `$1, $2` for Postgres, and the only real differences are the schema file, `GREATEST`
+instead of SQLite's variadic `MAX`, and comparing names with `lower()` rather than `COLLATE NOCASE`.
+
+Board state still lives in each process's memory, so more than one instance would mean participants
+seeing different rooms. Postgres removes the storage reason to run one task, not the broadcast one.
+
 ## Configuration
 
 Every backend setting can come from a **settings file** or from the **environment**, and the
@@ -339,7 +358,8 @@ ESTIMEET_ISSUES_URL    = https://github.com/jatin-bhatia1/estimeet/issues/new/ch
 | --- | --- | --- |
 | `ESTIMEET_CONFIG_FILE` | `estimeet.conf` | Settings file to read before the environment. Missing is fine. |
 | `ESTIMEET_ADDR` | `:8090` | Listen address. Falls back to `PORT` when unset, for hosts that assign one. |
-| `ESTIMEET_DB_PATH` | `data/estimeet.db` | SQLite file; created on first run. |
+| `ESTIMEET_DB_PATH` | `data/estimeet.db` | SQLite file; created on first run. Ignored when `ESTIMEET_DB_URL` is set. |
+| `ESTIMEET_DB_URL` | *(empty)* | `postgres://user:password@host:5432/estimeet?sslmode=require`. Switches the server to PostgreSQL. |
 | `ESTIMEET_ALLOWED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Comma-separated CORS **and** WebSocket origin allowlist. |
 | `ESTIMEET_APP_BASE_URL` | `http://localhost:5173` | Where the Jira callback sends the browser back to. |
 | `ESTIMEET_STATIC_DIR` | *(empty)* | Point at the built UI to serve it from the Go binary. |

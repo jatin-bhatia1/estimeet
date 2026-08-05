@@ -6,7 +6,11 @@
     "Two tasks must never run at once: the board is broadcast from memory and the",
     "database is a single SQLite file, so set the deployment configuration to",
     "minimumHealthyPercent 0 / maximumPercent 100 and accept a few seconds of",
-    "downtime on deploy."
+    "downtime on deploy.",
+    "To use Aurora Serverless v2 (PostgreSQL) instead of the SQLite file, add",
+    "ESTIMEET_DB_URL as a secret from Secrets Manager and drop the EFS volume,",
+    "mountPoints and the task role. One task is still the limit, because the",
+    "board is broadcast from memory."
   ],
   "family": "estimeet",
   "requiresCompatibilities": ["FARGATE"],

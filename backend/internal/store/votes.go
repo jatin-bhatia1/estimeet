@@ -9,7 +9,7 @@ import (
 
 // CastVote inserts or replaces a participant's card for a topic.
 func (s *Store) CastVote(ctx context.Context, v domain.Vote) error {
-	_, err := s.db.ExecContext(ctx,
+	_, err := s.exec(ctx,
 		`INSERT INTO votes (topic_id, participant_id, value, created_at) VALUES (?, ?, ?, ?)
 		 ON CONFLICT (topic_id, participant_id) DO UPDATE SET value = excluded.value, created_at = excluded.created_at`,
 		v.TopicID, v.ParticipantID, v.Value, toMillis(v.CreatedAt))
@@ -18,20 +18,20 @@ func (s *Store) CastVote(ctx context.Context, v domain.Vote) error {
 
 // ClearVote removes a single participant's card.
 func (s *Store) ClearVote(ctx context.Context, topicID, participantID string) error {
-	_, err := s.db.ExecContext(ctx,
+	_, err := s.exec(ctx,
 		`DELETE FROM votes WHERE topic_id = ? AND participant_id = ?`, topicID, participantID)
 	return err
 }
 
 // ClearTopicVotes wipes a round so the team can re-vote.
 func (s *Store) ClearTopicVotes(ctx context.Context, topicID string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM votes WHERE topic_id = ?`, topicID)
+	_, err := s.exec(ctx, `DELETE FROM votes WHERE topic_id = ?`, topicID)
 	return err
 }
 
 // ListVotesForTopic returns every card played on a topic.
 func (s *Store) ListVotesForTopic(ctx context.Context, topicID string) ([]domain.Vote, error) {
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := s.query(ctx,
 		`SELECT topic_id, participant_id, value, created_at FROM votes WHERE topic_id = ? ORDER BY created_at ASC`, topicID)
 	if err != nil {
 		return nil, err
@@ -43,7 +43,7 @@ func (s *Store) ListVotesForTopic(ctx context.Context, topicID string) ([]domain
 // ListVotesForRoom returns every card in the room, keyed by topic, so the whole
 // board can be rendered with one query instead of N.
 func (s *Store) ListVotesForRoom(ctx context.Context, roomID string) (map[string][]domain.Vote, error) {
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := s.query(ctx,
 		`SELECT v.topic_id, v.participant_id, v.value, v.created_at
 		 FROM votes v JOIN topics t ON t.id = v.topic_id
 		 WHERE t.room_id = ?

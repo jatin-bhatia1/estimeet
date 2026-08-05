@@ -34,7 +34,7 @@ func run() error {
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})))
 
-	st, err := store.Open(cfg.DBPath)
+	st, err := store.Open(cfg.DataSource())
 	if err != nil {
 		return err
 	}
@@ -72,7 +72,7 @@ func run() error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("estimeet api listening", "addr", cfg.Addr, "db", cfg.DBPath, "room_retention", cfg.RoomRetention)
+		slog.Info("estimeet api listening", "addr", cfg.Addr, "db", cfg.SafeDataSource(), "room_retention", cfg.RoomRetention)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}

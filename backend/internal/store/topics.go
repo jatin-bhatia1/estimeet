@@ -14,7 +14,7 @@ const topicColumns = `id, room_id, title, description, external_key, external_ur
 
 // CreateTopic inserts one topic.
 func (s *Store) CreateTopic(ctx context.Context, t domain.Topic) error {
-	_, err := s.db.ExecContext(ctx,
+	_, err := s.exec(ctx,
 		`INSERT INTO topics (`+topicColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.RoomID, t.Title, t.Description, nullString(t.ExternalKey), nullString(t.ExternalURL),
 		t.Position, string(t.Status), nullString(t.FinalEstimate), toMillis(t.CreatedAt), nullTime(t.RevealedAt),
@@ -24,7 +24,7 @@ func (s *Store) CreateTopic(ctx context.Context, t domain.Topic) error {
 
 // TopicByID fetches a topic scoped to its room.
 func (s *Store) TopicByID(ctx context.Context, roomID, topicID string) (domain.Topic, error) {
-	return s.scanTopic(s.db.QueryRowContext(ctx,
+	return s.scanTopic(s.queryRow(ctx,
 		`SELECT `+topicColumns+` FROM topics WHERE id = ? AND room_id = ?`, topicID, roomID))
 }
 
@@ -57,7 +57,7 @@ func (s *Store) scanTopic(row *sql.Row) (domain.Topic, error) {
 
 // ListTopics returns the room backlog in display order.
 func (s *Store) ListTopics(ctx context.Context, roomID string) ([]domain.Topic, error) {
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := s.query(ctx,
 		`SELECT `+topicColumns+` FROM topics WHERE room_id = ? ORDER BY position ASC, created_at ASC`, roomID)
 	if err != nil {
 		return nil, err
@@ -93,7 +93,7 @@ func (s *Store) ListTopics(ctx context.Context, roomID string) ([]domain.Topic, 
 // NextTopicPosition returns the position to use for a newly appended topic.
 func (s *Store) NextTopicPosition(ctx context.Context, roomID string) (int, error) {
 	var pos sql.NullInt64
-	err := s.db.QueryRowContext(ctx,
+	err := s.queryRow(ctx,
 		`SELECT MAX(position) FROM topics WHERE room_id = ?`, roomID).Scan(&pos)
 	if err != nil {
 		return 0, err
@@ -106,7 +106,7 @@ func (s *Store) NextTopicPosition(ctx context.Context, roomID string) (int, erro
 
 // UpdateTopicDetails edits the human-readable fields.
 func (s *Store) UpdateTopicDetails(ctx context.Context, roomID, topicID, title, description string) error {
-	res, err := s.db.ExecContext(ctx,
+	res, err := s.exec(ctx,
 		`UPDATE topics SET title = ?, description = ? WHERE id = ? AND room_id = ?`,
 		title, description, topicID, roomID)
 	return affected(res, err)
@@ -114,7 +114,7 @@ func (s *Store) UpdateTopicDetails(ctx context.Context, roomID, topicID, title, 
 
 // UpdateTopicStatus moves a topic through its lifecycle.
 func (s *Store) UpdateTopicStatus(ctx context.Context, topicID string, status domain.TopicStatus, revealedAt *time.Time) error {
-	res, err := s.db.ExecContext(ctx,
+	res, err := s.exec(ctx,
 		`UPDATE topics SET status = ?, revealed_at = ? WHERE id = ?`,
 		string(status), nullTime(revealedAt), topicID)
 	return affected(res, err)
@@ -126,7 +126,7 @@ func (s *Store) FinalizeTopic(ctx context.Context, topicID string, estimate *str
 	if estimate == nil {
 		status = domain.StatusRevealed
 	}
-	res, err := s.db.ExecContext(ctx,
+	res, err := s.exec(ctx,
 		`UPDATE topics SET final_estimate = ?, status = ? WHERE id = ?`,
 		nullString(estimate), string(status), topicID)
 	return affected(res, err)
@@ -141,11 +141,11 @@ func (s *Store) ResetTopic(ctx context.Context, topicID string) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if _, err := tx.ExecContext(ctx, `DELETE FROM votes WHERE topic_id = ?`, topicID); err != nil {
+	if _, err := tx.ExecContext(ctx, s.rebind(`DELETE FROM votes WHERE topic_id = ?`), topicID); err != nil {
 		return err
 	}
 	res, err := tx.ExecContext(ctx,
-		`UPDATE topics SET status = 'pending', revealed_at = NULL, final_estimate = NULL WHERE id = ?`, topicID)
+		s.rebind(`UPDATE topics SET status = 'pending', revealed_at = NULL, final_estimate = NULL WHERE id = ?`), topicID)
 	if err := affected(res, err); err != nil {
 		return err
 	}
@@ -160,7 +160,7 @@ func (s *Store) ReorderTopics(ctx context.Context, roomID string, orderedIDs []s
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	stmt, err := tx.PrepareContext(ctx, `UPDATE topics SET position = ? WHERE id = ? AND room_id = ?`)
+	stmt, err := tx.PrepareContext(ctx, s.rebind(`UPDATE topics SET position = ? WHERE id = ? AND room_id = ?`))
 	if err != nil {
 		return err
 	}
@@ -176,13 +176,13 @@ func (s *Store) ReorderTopics(ctx context.Context, roomID string, orderedIDs []s
 
 // DeleteTopic removes a topic and its votes.
 func (s *Store) DeleteTopic(ctx context.Context, roomID, topicID string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM topics WHERE id = ? AND room_id = ?`, topicID, roomID)
+	res, err := s.exec(ctx, `DELETE FROM topics WHERE id = ? AND room_id = ?`, topicID, roomID)
 	return affected(res, err)
 }
 
 // ExistingExternalKeys reports which Jira keys are already imported, so imports are idempotent.
 func (s *Store) ExistingExternalKeys(ctx context.Context, roomID string) (map[string]bool, error) {
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := s.query(ctx,
 		`SELECT external_key FROM topics WHERE room_id = ? AND external_key IS NOT NULL`, roomID)
 	if err != nil {
 		return nil, err

@@ -51,11 +51,11 @@ func (c SourceConnection) TokenStale(now time.Time) bool {
 // the retention window past what the host agreed to.
 func (s *Store) SaveSourceConnection(ctx context.Context, c SourceConnection, tokenEnc, refreshEnc []byte) error {
 	now := toMillis(time.Now())
-	var refresh any
+	var refresh []byte
 	if len(refreshEnc) > 0 {
 		refresh = refreshEnc
 	}
-	_, err := s.db.ExecContext(ctx,
+	_, err := s.exec(ctx,
 		`INSERT INTO source_connections
 		   (room_id, provider, auth_type, base_url, cloud_id, display_name, account,
 		    access_token, refresh_token, token_expires_at, expires_at, created_at, updated_at)
@@ -95,7 +95,7 @@ func (s *Store) RawSourceConnection(ctx context.Context, roomID string, now time
 		created      int64
 		updated      int64
 	)
-	err := s.db.QueryRowContext(ctx,
+	err := s.queryRow(ctx,
 		`SELECT room_id, provider, auth_type, base_url, cloud_id, display_name, account,
 		        access_token, refresh_token, token_expires_at, expires_at, created_at, updated_at
 		 FROM source_connections WHERE room_id = ? AND expires_at > ?`, roomID, toMillis(now)).
@@ -116,14 +116,14 @@ func (s *Store) RawSourceConnection(ctx context.Context, roomID string, now time
 
 // DeleteSourceConnection disconnects a room from its tracker.
 func (s *Store) DeleteSourceConnection(ctx context.Context, roomID string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM source_connections WHERE room_id = ?`, roomID)
+	_, err := s.exec(ctx, `DELETE FROM source_connections WHERE room_id = ?`, roomID)
 	return err
 }
 
 // PurgeSourceConnections deletes everything past its retention deadline, plus
 // anything belonging to a closed room. It returns how many rows went away.
 func (s *Store) PurgeSourceConnections(ctx context.Context, now time.Time) (int64, error) {
-	res, err := s.db.ExecContext(ctx,
+	res, err := s.exec(ctx,
 		`DELETE FROM source_connections
 		 WHERE expires_at <= ?
 		    OR room_id IN (SELECT id FROM rooms WHERE closed_at IS NOT NULL)`, toMillis(now))

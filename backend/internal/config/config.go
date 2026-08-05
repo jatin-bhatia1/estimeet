@@ -5,6 +5,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -13,8 +14,12 @@ import (
 
 // Config holds every knob the server needs to boot.
 type Config struct {
-	Addr           string
-	DBPath         string
+	Addr   string
+	DBPath string
+	// DBURL points at a PostgreSQL server. When it is set the SQLite file is
+	// ignored, which is how the same image runs on a laptop and on a managed
+	// database.
+	DBURL          string
 	AllowedOrigins []string
 	AppBaseURL     string
 	StaticDir      string
@@ -57,6 +62,7 @@ func Load() (Config, error) {
 	cfg := Config{
 		Addr:           listenAddr(),
 		DBPath:         env("ESTIMEET_DB_PATH", "data/estimeet.db"),
+		DBURL:          env("ESTIMEET_DB_URL", ""),
 		AllowedOrigins: splitAndTrim(env("ESTIMEET_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")),
 		AppBaseURL:     strings.TrimRight(env("ESTIMEET_APP_BASE_URL", "http://localhost:5173"), "/"),
 		StaticDir:      env("ESTIMEET_STATIC_DIR", ""),
@@ -99,6 +105,28 @@ func Load() (Config, error) {
 func isProd() bool {
 	v := strings.ToLower(env("ESTIMEET_ENV", "development"))
 	return v == "production" || v == "prod"
+}
+
+// DataSource is what the store should connect to: the PostgreSQL URL when there
+// is one, the SQLite file otherwise.
+func (c Config) DataSource() string {
+	if c.DBURL != "" {
+		return c.DBURL
+	}
+	return c.DBPath
+}
+
+// SafeDataSource is DataSource without the credentials, because the startup log
+// says which database it opened and a URL carries a password.
+func (c Config) SafeDataSource() string {
+	if c.DBURL == "" {
+		return c.DBPath
+	}
+	u, err := url.Parse(c.DBURL)
+	if err != nil {
+		return "postgres"
+	}
+	return u.Scheme + "://" + u.Host + u.Path
 }
 
 // listenAddr resolves the address to listen on. Free hosts hand the port to the
