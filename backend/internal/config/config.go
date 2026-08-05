@@ -5,6 +5,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net"
 	"net/url"
 	"os"
 	"strconv"
@@ -62,7 +63,7 @@ func Load() (Config, error) {
 	cfg := Config{
 		Addr:           listenAddr(),
 		DBPath:         env("ESTIMEET_DB_PATH", "data/estimeet.db"),
-		DBURL:          env("ESTIMEET_DB_URL", ""),
+		DBURL:          databaseURL(),
 		AllowedOrigins: splitAndTrim(env("ESTIMEET_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")),
 		AppBaseURL:     strings.TrimRight(env("ESTIMEET_APP_BASE_URL", "http://localhost:5173"), "/"),
 		StaticDir:      env("ESTIMEET_STATIC_DIR", ""),
@@ -114,6 +115,37 @@ func (c Config) DataSource() string {
 		return c.DBURL
 	}
 	return c.DBPath
+}
+
+// databaseURL resolves the PostgreSQL DSN. ESTIMEET_DB_URL wins; otherwise one
+// is built from the parts, because managed platforms hand the host, database
+// and credentials over as separate variables, and stitching them into a URL by
+// hand is where a password with a punctuation mark in it goes wrong. Nothing is
+// assembled without a host, so the SQLite default survives.
+func databaseURL() string {
+	if u := env("ESTIMEET_DB_URL", ""); u != "" {
+		return u
+	}
+	host := env("ESTIMEET_DB_HOST", "")
+	if host == "" {
+		return ""
+	}
+	u := url.URL{
+		Scheme:   "postgres",
+		Host:     net.JoinHostPort(host, env("ESTIMEET_DB_PORT", "5432")),
+		Path:     "/" + env("ESTIMEET_DB_NAME", "estimeet"),
+		RawQuery: "sslmode=" + env("ESTIMEET_DB_SSLMODE", "require"),
+	}
+	if user := env("ESTIMEET_DB_USER", ""); user != "" {
+		// Read the password without trimming: a surrounding space is unlikely but
+		// silently dropping one would be maddening to debug.
+		if pass := os.Getenv("ESTIMEET_DB_PASSWORD"); pass != "" {
+			u.User = url.UserPassword(user, pass)
+		} else {
+			u.User = url.User(user)
+		}
+	}
+	return u.String()
 }
 
 // SafeDataSource is DataSource without the credentials, because the startup log

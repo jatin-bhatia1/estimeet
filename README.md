@@ -288,9 +288,18 @@ and `PORT` fills in when it is not.
 
 The platform owns the task definition, the load balancer and the certificate; the repository only has
 to produce an image and push it to ECR. [.gitlab-ci.yml](.gitlab-ci.yml) does that — assume an AWS
-role through OIDC, then build with Kaniko — and needs three values filled in: `AWS_REGION`, the
-`AWS_GITLAB_ROLE_NAME` from the *Gitlab Repository* component and the `ECR_REPO_URL` from the *App on
-Fargate* component. There are no secrets to store: the OIDC token is minted per job.
+role through OIDC, then build with Kaniko. There are no secrets to store: the OIDC token is minted per
+job. Two **project CI/CD variables** name the target, and the pipeline stops early without them:
+
+| Variable | Where it comes from |
+| --- | --- |
+| `AWS_GITLAB_ROLE_NAME` | the *Gitlab Repository* component — the role **name**, not the ARN |
+| `ECR_REPO_URL` | the *App on Fargate* component — `<account>.dkr.ecr.<region>.amazonaws.com/<repo>` |
+
+They live in **Settings → CI/CD → Variables** rather than in the file, because they carry an AWS
+account id and this repository is mirrored to a public GitHub remote. Neither can be *Masked* — a role
+name is too short and the URL contains dots and a slash — so mark them *Protected* and protect `main`.
+`AWS_REGION` in the file has to match the region inside `ECR_REPO_URL`.
 
 **One image, one ECR repository.** The Dockerfile builds the React UI and the Go API and ships them in
 the same image, with the API serving the built files, so there is nothing to split into a second
@@ -322,14 +331,30 @@ timeout below 25 seconds will drop live boards** — that is the server's WebSoc
 is chosen to sit comfortably inside an ALB's 60-second default.
 
 Set `ESTIMEET_APP_BASE_URL` and `ESTIMEET_ALLOWED_ORIGINS` to the `subdomainUrl` the SDC console shows,
-and `ESTIMEET_SECRET` to something random and permanent — regenerating it invalidates every stored
-tracker credential.
+`ESTIMEET_SECRET` to something random and permanent — regenerating it invalidates every stored tracker
+credential — and the database settings below.
 
 ### PostgreSQL instead of SQLite
 
 Set `ESTIMEET_DB_URL` to a `postgres://` URL and the server uses that instead of the SQLite file;
 leave it unset and nothing changes. The schema is created on connect, so an empty database is all the
 server needs.
+
+Managed platforms rarely hand over a finished URL, so the parts work too — they are only used when
+`ESTIMEET_DB_URL` is empty, and only when a host is given:
+
+| Variable | Default |
+| --- | --- |
+| `ESTIMEET_DB_HOST` | *(empty — nothing is assembled without it)* |
+| `ESTIMEET_DB_PORT` | `5432` |
+| `ESTIMEET_DB_NAME` | `estimeet` |
+| `ESTIMEET_DB_USER` | *(empty)* |
+| `ESTIMEET_DB_PASSWORD` | *(empty)* |
+| `ESTIMEET_DB_SSLMODE` | `require` |
+
+The password is URL-encoded on the way in, which is the reason to prefer the parts: a password
+containing `@`, `/` or `?` pasted straight into a URL produces a DSN that fails to parse, or worse,
+parses into the wrong host.
 
 This exists for platforms where a file is the awkward part. On Fargate, SQLite means an EFS volume,
 exactly one task, and no rolling deploys; with Postgres the task keeps no state, so it can be scaled
@@ -372,6 +397,7 @@ ESTIMEET_ISSUES_URL    = https://github.com/jatin-bhatia1/estimeet/issues/new/ch
 | `ESTIMEET_ADDR` | `:8090` | Listen address. Falls back to `PORT` when unset, for hosts that assign one. |
 | `ESTIMEET_DB_PATH` | `data/estimeet.db` | SQLite file; created on first run. Ignored when `ESTIMEET_DB_URL` is set. |
 | `ESTIMEET_DB_URL` | *(empty)* | `postgres://user:password@host:5432/estimeet?sslmode=require`. Switches the server to PostgreSQL. |
+| `ESTIMEET_DB_HOST` / `_PORT` / `_NAME` / `_USER` / `_PASSWORD` / `_SSLMODE` | see above | Used to build the URL when `ESTIMEET_DB_URL` is empty and a host is set. |
 | `ESTIMEET_ALLOWED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Comma-separated CORS **and** WebSocket origin allowlist. |
 | `ESTIMEET_APP_BASE_URL` | `http://localhost:5173` | Where the Jira callback sends the browser back to. |
 | `ESTIMEET_STATIC_DIR` | *(empty)* | Point at the built UI to serve it from the Go binary. |

@@ -6,12 +6,13 @@
 # ships them together, with the API serving the built UI. So one ECR repository,
 # one container in the task.
 #
-# Everything marked CONFIGURE ME has to be filled in before the first run.
+# The two values that name the deployment target are project CI/CD variables,
+# not literals in this file - see workflow.rules below.
 
 stages: [assume_role, push]
 
 variables:
-  # CONFIGURE ME: the region your ECR repository lives in.
+  # Must be the region inside ECR_REPO_URL.
   AWS_REGION: "eu-west-1"
   # Deployments follow the `latest` tag; the commit tag is pushed alongside it
   # so a running task can be traced back to a commit.
@@ -27,25 +28,28 @@ variables:
 
 workflow:
   rules:
-    # CONFIGURE ME: per branch, the IAM role GitLab assumes through OIDC and the
-    # ECR repository to push to. The role name is on the Gitlab Repository
-    # component in the SDC canvas, the repository URL on the App on Fargate one.
-    # The account id is parsed out of ECR_REPO_URL, so the role has to live in
-    # the same account. Delete the branches you do not deploy.
+    # Only main is deployed, and AWS_GITLAB_ROLE_NAME and ECR_REPO_URL come from
+    # the project's CI/CD variables (Settings -> CI/CD -> Variables) rather than
+    # from this file. They carry an AWS account id and a role name, and this
+    # repository is mirrored to a public GitHub remote.
+    #   AWS_GITLAB_ROLE_NAME  the role *name*, from the Gitlab Repository component
+    #   ECR_REPO_URL          <account>.dkr.ecr.<region>.amazonaws.com/<repo>,
+    #                         from the App on Fargate component
+    # Neither can be masked: a role name is too short and a URL contains dots
+    # and a slash. Protect them instead, and protect the main branch.
     - if: '$CI_COMMIT_BRANCH == "main"'
-      variables:
-        AWS_GITLAB_ROLE_NAME: "CHANGEME-main-role-name"
-        ECR_REPO_URL: "CHANGEME.dkr.ecr.eu-west-1.amazonaws.com/CHANGEME-repo"
-    - when: always
+    # Any other branch would push the same :latest tag, which is what the
+    # platform deploys, so it gets no pipeline at all. Tests run on GitHub.
+    - when: never
 
 before_script:
   - |
     echo "$ECR_REPO_URL" | grep -Eq '^[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com/.+$' || {
-      echo "ECR_REPO_URL is not <account-id>.dkr.ecr.<region>.amazonaws.com/<repository>: $ECR_REPO_URL"
+      echo "ECR_REPO_URL is not <account-id>.dkr.ecr.<region>.amazonaws.com/<repository>; add it under Settings -> CI/CD -> Variables."
       exit 1
     }
     if [ -z "$AWS_GITLAB_ROLE_NAME" ]; then
-      echo "AWS_GITLAB_ROLE_NAME is not set; fill it in under workflow.rules or as a CI/CD variable."
+      echo "AWS_GITLAB_ROLE_NAME is not set; add it under Settings -> CI/CD -> Variables."
       exit 1
     fi
     export AWS_ROLE_ARN="arn:aws:iam::$(echo "$ECR_REPO_URL" | cut -d'.' -f1):role/${AWS_GITLAB_ROLE_NAME}"
