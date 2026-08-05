@@ -284,6 +284,35 @@ re-run the Pages workflow.
 Hosts that hand the port to the process as `PORT` are supported: `ESTIMEET_ADDR` wins when it is set,
 and `PORT` fills in when it is not.
 
+### On AWS Fargate
+
+[deploy/aws/task-definition.json](deploy/aws/task-definition.json) is a ready task definition; fill in
+the account, region and file system ids. What Fargate needs around it:
+
+- **A registry it can pull from.** Fargate can pull the public GHCR image if the task has a route to
+  the internet, but a task in a private subnet without a NAT gateway cannot. Copying the image into
+  ECR (`docker buildx imagetools create -t <account>.dkr.ecr.<region>.amazonaws.com/estimeet:main
+  ghcr.io/jatin-bhatia1/estimeet:main`) avoids the question and is what the task definition assumes.
+- **An EFS file system for `/data`.** Fargate's own disk disappears with the task, and the whole
+  database is one SQLite file. Give the access point POSIX uid **10001** — the user the image runs as —
+  and open port 2049 from the task's security group. Fargate cannot use EBS this way.
+- **Exactly one task.** The board is broadcast from memory and SQLite tolerates one writer, so run the
+  service with `desiredCount` 1 and a deployment configuration of `minimumHealthyPercent` 0 /
+  `maximumPercent` 100. Rolling deploys that briefly run two tasks will corrupt state.
+- **An Application Load Balancer.** It speaks WebSocket without extra configuration; point the target
+  group (type `ip`, port 8090) at `/api/health`. The server pings every 25 seconds, comfortably inside
+  the ALB's 60-second idle timeout, so live boards stay connected.
+- **HTTPS.** An ACM certificate on a 443 listener. The published UI is served over HTTPS, and a browser
+  will refuse a `ws://` connection from an `https://` page.
+- **Two roles.** The stock `ecsTaskExecutionRole` (ECR pull, CloudWatch Logs, plus
+  `secretsmanager:GetSecretValue` for `ESTIMEET_SECRET`) and a task role carrying
+  `elasticfilesystem:ClientMount` / `ClientWrite` for the access point.
+- **The settings.** Plain values as `environment`, `ESTIMEET_SECRET` as a `secrets` entry from Secrets
+  Manager. The settings file works too — it is read from `/data/estimeet.conf`, which is on EFS.
+
+Then set the repository variable `ESTIMEET_API_BASE_URL` to the load balancer's hostname and re-run the
+Pages workflow.
+
 ## Configuration
 
 Every backend setting can come from a **settings file** or from the **environment**, and the
