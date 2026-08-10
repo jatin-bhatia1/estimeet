@@ -608,6 +608,7 @@ Fibonacci card to the average). "Vote again" clears the round and reopens the to
 | `connection forcibly closed` on port 8090 | Something else owns the port. Check with `Get-NetTCPConnection -LocalPort 8090 -State Listen`, then set `ESTIMEET_ADDR=":9000"` and update `target` in `frontend/vite.config.ts`. |
 | Header shows **offline** / board stops updating | The WebSocket was blocked. In production make sure the reverse proxy forwards upgrades; locally make sure the API is actually running. |
 | `ESTIMEET_SECRET must be set outside development` | `ESTIMEET_ENV=production` requires an explicit 16+ character secret. |
+| **503** from a load balancer, nothing in the access log | The container never listened, so the target group has no healthy target. It is not an auth problem — that would be a 401 or a redirect. Read the task's log: a configuration error exits before the first log line about listening. `ESTIMEET_SECRET` is the usual one, because the image sets `ESTIMEET_ENV=production`. |
 | Jira panel says *not configured* | All three of `JIRA_CLIENT_ID`, `JIRA_CLIENT_SECRET`, `JIRA_REDIRECT_URI` must be set, and the API restarted. |
 | Jira returns `invalid redirect_uri` | `JIRA_REDIRECT_URI` must match the Atlassian app registration character for character. |
 | `npm install` warns about blocked install scripts | npm 12 blocks postinstall by default. Run `npm install-scripts approve esbuild` if the build fails. |
