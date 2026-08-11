@@ -330,9 +330,19 @@ and with SQLite a rolling deploy that briefly runs two tasks will corrupt the fi
 timeout below 25 seconds will drop live boards** — that is the server's WebSocket ping interval, and it
 is chosen to sit comfortably inside an ALB's 60-second default.
 
-Set `ESTIMEET_APP_BASE_URL` and `ESTIMEET_ALLOWED_ORIGINS` to the `subdomainUrl` the SDC console shows,
-`ESTIMEET_SECRET` to something random and permanent — regenerating it invalidates every stored tracker
-credential — and the database settings below.
+Every default in this repository points at a laptop, so a deployment that sets nothing runs as if it
+were on `localhost`. The full set to put on the component:
+
+| Variable | Value | If you skip it |
+| --- | --- | --- |
+| `ESTIMEET_SECRET` | 32 random characters, invented once and never rotated | **The container exits at startup and the load balancer answers 503** |
+| `ESTIMEET_ALLOWED_ORIGINS` | the `subdomainUrl` from the SDC console | The origin allowlist still says `localhost:5173` |
+| `ESTIMEET_APP_BASE_URL` | the same URL | Jira sends the browser back to `localhost` after the OAuth dance |
+| `ESTIMEET_DB_*` | see below | Every deploy starts with an empty database |
+| `JIRA_REDIRECT_URI` | `<subdomainUrl>/api/jira/callback` | Only matters if you enable Jira OAuth; the default is a localhost URL |
+
+The UI needs nothing: it is built without `VITE_API_BASE_URL`, so it calls `/api` relative to whatever
+host serves it.
 
 ### PostgreSQL instead of SQLite
 
