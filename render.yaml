@@ -18,6 +18,10 @@ services:
       url: ghcr.io/jatin-bhatia1/estimeet:main
     healthCheckPath: /api/health
     envVars:
+      # Matches the image's EXPOSE, so Render's port detection cannot disagree
+      # with what the process binds.
+      - key: PORT
+        value: 8000
       # The browser origin of the published UI. CORS and the WebSocket handshake
       # both check it, so a mismatch shows up as a board that never updates.
       - key: ESTIMEET_ALLOWED_ORIGINS

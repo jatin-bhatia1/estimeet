@@ -50,3 +50,19 @@ jobs:
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # An image-backed host keeps running the image it already pulled: a new
+      # :main tag is not an event it hears about. Add the repository secret
+      # RENDER_DEPLOY_HOOK (the service's Settings - Deploy Hook URL) and every
+      # push to main reaches production; leave it unset and this does nothing.
+      - name: Ask the host to pull the new image
+        if: github.ref == 'refs/heads/main'
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "RENDER_DEPLOY_HOOK is not set, skipping"
+            exit 0
+          fi
+          curl -fsS -X POST "$HOOK" -o /dev/null
+          echo "deploy requested"

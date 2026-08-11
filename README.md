@@ -276,10 +276,25 @@ survives a restart**, because the whole database is one SQLite file.
 | **Fly.io** | roughly $2/month | Closest fit: a 256MB machine plus a 1GB volume, auto-stopping when idle. There is no free allowance for new accounts. |
 
 Render is the quickest way to make the published page work, and [render.yaml](render.yaml) already
-describes the service: **New → Blueprint → this repository**. Render asks for `ESTIMEET_CONTACT_EMAIL`
-on the first deploy and generates `ESTIMEET_SECRET` itself. Take the resulting
-`https://estimeet-api.onrender.com` and set it as the repository variable `ESTIMEET_API_BASE_URL`, then
-re-run the Pages workflow.
+describes the service — it runs the image from GHCR rather than building anything, so a deploy is a
+pull and not a five-minute build:
+
+1. Make the image public, once: the repository's **Packages → estimeet → Package settings → Change
+   visibility**. Render can pull a private image, but only with a token you would then have to rotate.
+2. **New → Blueprint → this repository**. Render asks for `ESTIMEET_CONTACT_EMAIL` during the flow and
+   generates `ESTIMEET_SECRET` itself; everything else is in the file.
+3. Take the resulting `https://estimeet-api.onrender.com` and set it as the repository variable
+   `ESTIMEET_API_BASE_URL` (Settings → Secrets and variables → Actions → Variables), then re-run the
+   Pages workflow. Until that variable exists the published page calls itself and every request 404s.
+4. Copy the service's **Deploy Hook** URL into the repository secret `RENDER_DEPLOY_HOOK`. An
+   image-backed service keeps serving the image it already pulled, so without this a push to `main`
+   publishes a new image that nothing ever deploys.
+
+Two things about the free instance are worth knowing before you demo it. It **sleeps after 15 idle
+minutes** and takes about a minute to wake, so the first person to open the page waits; and its
+filesystem is wiped whenever it sleeps or redeploys, so the SQLite database starts empty every time.
+A free Render Postgres fixes the second problem for 30 days, after which it expires — set
+`ESTIMEET_DB_URL` from its connection string if a demo needs to survive the night.
 
 Hosts that hand the port to the process as `PORT` are supported: `ESTIMEET_ADDR` wins when it is set,
 and `PORT` fills in when it is not.
