@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { COFFEE_CARD, cardLabel } from '../lib/types'
 
@@ -10,19 +10,16 @@ export const DECK_PRESETS = [
   {
     id: 'fibonacci',
     label: 'Fibonacci',
-    hint: 'The classic. Gaps that grow with the uncertainty.',
     cards: ['0', '1', '2', '3', '5', '8', '13', '21', '34', '55', '89', '?', COFFEE_CARD],
   },
   {
     id: 'tshirt',
     label: 'T-shirt sizes',
-    hint: 'Relative sizing without numbers. No average is calculated.',
     cards: ['XS', 'S', 'M', 'L', 'XL', 'XXL', '?', COFFEE_CARD],
   },
   {
     id: 'powers',
     label: 'Powers of two',
-    hint: 'Every step is a doubling.',
     cards: ['1', '2', '4', '8', '16', '32', '64', '?', COFFEE_CARD],
   },
 ] as const
@@ -58,16 +55,32 @@ interface DeckPickerProps {
   disabled?: boolean
 }
 
+function buttonClass(active: boolean): string {
+  return [
+    'rounded-lg border px-2.5 py-1 text-xs font-medium transition disabled:opacity-50',
+    active
+      ? 'border-accent-500/60 bg-accent-500/15 text-slate-100'
+      : 'border-white/10 bg-black/20 text-slate-400 hover:border-white/25',
+  ].join(' ')
+}
+
 export function DeckPicker({ deck, onChange, disabled = false }: DeckPickerProps) {
   const selected = presetOf(deck)
   // Kept apart from the deck so trailing separators survive while typing.
   const [draft, setDraft] = useState(() => deck.join(' '))
+  const input = useRef<HTMLInputElement>(null)
 
   const pick = (id: string) => {
     const preset = DECK_PRESETS.find((p) => p.id === id)
-    const cards = preset ? [...preset.cards] : deck
-    setDraft(cards.join(' '))
-    onChange(cards)
+    if (!preset) return
+    setDraft(preset.cards.join(' '))
+    onChange([...preset.cards])
+  }
+
+  // Custom has nothing to select, so it hands the host the text field instead.
+  const custom = () => {
+    input.current?.focus()
+    input.current?.select()
   }
 
   const type = (text: string) => {
@@ -78,25 +91,24 @@ export function DeckPicker({ deck, onChange, disabled = false }: DeckPickerProps
   return (
     <div className="space-y-2.5">
       <div className="flex flex-wrap gap-1.5">
-        {[...DECK_PRESETS, { id: 'custom', label: 'Custom', hint: '', cards: [] }].map((preset) => (
+        {DECK_PRESETS.map((preset) => (
           <button
             key={preset.id}
             type="button"
             disabled={disabled}
             onClick={() => pick(preset.id)}
-            className={[
-              'rounded-lg border px-2.5 py-1 text-xs font-medium transition disabled:opacity-50',
-              selected === preset.id
-                ? 'border-accent-500/60 bg-accent-500/15 text-slate-100'
-                : 'border-white/10 bg-black/20 text-slate-400 hover:border-white/25',
-            ].join(' ')}
+            className={buttonClass(selected === preset.id)}
           >
             {preset.label}
           </button>
         ))}
+        <button type="button" disabled={disabled} onClick={custom} className={buttonClass(selected === 'custom')}>
+          Custom…
+        </button>
       </div>
 
       <input
+        ref={input}
         className="field !py-1.5 font-mono text-sm"
         value={draft}
         onChange={(e) => type(e.target.value)}
@@ -120,7 +132,7 @@ export function DeckPicker({ deck, onChange, disabled = false }: DeckPickerProps
       <p className="text-xs text-slate-500">
         {deck.length < 2
           ? 'A deck needs at least two cards.'
-          : `${deck.length} cards, up to ${MAX_DECK_SIZE}. Anything that is not a number is left out of the average.`}
+          : `${deck.length} cards, up to ${MAX_DECK_SIZE}. Edit the list to make your own; a card that is not a number is left out of the average.`}
       </p>
     </div>
   )
