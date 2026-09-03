@@ -33,7 +33,11 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (body !== undefined) headers['Content-Type'] = 'application/json'
-  if (token) headers.Authorization = `Bearer ${token}`
+  // Authorization goes too, for a backend deployed without the header below.
+  if (token) {
+    headers['X-Estimeet-Token'] = token
+    headers.Authorization = `Bearer ${token}`
+  }
 
   const response = await fetch(`${API_BASE}${path}`, {
     method,

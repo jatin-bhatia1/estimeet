@@ -24,10 +24,19 @@ func sessionFrom(ctx context.Context) (service.Session, bool) {
 	return sess, ok
 }
 
-// bearerToken extracts the token from the Authorization header, or from the
-// WebSocket subprotocol list (browsers cannot set headers on a WebSocket
-// handshake, and putting the token in the query string would leak it into logs).
+// TokenHeader carries the participant's session token. Authorization is not
+// safe to rely on: an authenticating proxy in front of the app may strip it or
+// replace it with the token of the signed-in employee.
+const TokenHeader = "X-Estimeet-Token"
+
+// bearerToken extracts the token from TokenHeader, from the Authorization
+// header, or from the WebSocket subprotocol list (browsers cannot set headers
+// on a WebSocket handshake, and putting the token in the query string would
+// leak it into logs).
 func bearerToken(r *http.Request) string {
+	if h := strings.TrimSpace(r.Header.Get(TokenHeader)); h != "" {
+		return h
+	}
 	if h := r.Header.Get("Authorization"); h != "" {
 		if after, ok := strings.CutPrefix(h, "Bearer "); ok {
 			return strings.TrimSpace(after)
