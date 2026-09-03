@@ -1,10 +1,10 @@
 # Estimeet
 
-**Fibonacci estimation for your backlog — live in a call, or on your own time.**
+**Planning poker for your backlog — live in a call, or on your own time.**
 
 Estimeet is a planning-poker app for sizing anything your team needs to estimate. Topics come from a
 Jira epic, an Azure DevOps feature, a GitHub milestone or the built-in composer, everyone plays a card
-from the Fibonacci deck, the cards flip together, and the team agrees on a number.
+from the room's deck, the cards flip together, and the team agrees on a number.
 
 It runs in two modes:
 
@@ -156,6 +156,9 @@ individually. `.vscode/tasks.json` also has **test: backend**, **build: frontend
 1. Open <http://localhost:5173>.
 2. **Start a session** — give it a name, enter your display name, and pick **Synchronous** or
    **Asynchronous**. Leave *flip the cards automatically* on unless you want to reveal by hand.
+   Under **the deck**, keep Fibonacci or switch to T-shirt sizes, powers of two or your own cards
+   (2 to 16 of them, 6 characters each). The host can change the deck later from the **deck** link in
+   the room header; cards already played are left alone.
 3. Share the 6-character room code (or use **Share link**) with your team. They join with just a display
    name — no accounts. Anyone who is not estimating can tick **join as an observer**; observers see
    everything but are never counted as a missing vote.
@@ -166,8 +169,9 @@ individually. `.vscode/tasks.json` also has **test: backend**, **build: frontend
      everyone plays a card on the current topic.
    - *asynchronous* — every topic is a card of its own; play them in any order. The **to estimate /
      all / done** filter and the progress bar track what you still owe.
-6. When the cards flip you get the distribution, average, median, range and a suggested Fibonacci card.
-   The host picks the agreed number, or hits **Vote again** to re-run the round.
+6. When the cards flip you get the distribution, average, median, range and a suggested card. The host
+   picks the agreed number, or hits **Vote again** to re-run the round. A deck with no numbers in it
+   (T-shirt sizes, say) still gives you the distribution; there is nothing to average.
 
 Sessions survive a refresh: your token is kept in `localStorage`, and **Leave** clears it.
 
@@ -600,8 +604,9 @@ process: only `*.atlassian.net`, `dev.azure.com`/`*.visualstudio.com` organisati
 
 ## How the rules work
 
-**The deck** is `0 1 2 3 5 8 13 21 34 55 89` plus `?` (no idea) and `☕` (need a break). The two special
-cards are counted in the distribution but excluded from the average, median and range.
+**The deck** defaults to `0 1 2 3 5 8 13 21 34 55 89` plus `?` (no idea) and `☕` (need a break), and
+the host can replace it with any 2 to 16 cards. Cards that are not numbers are counted in the
+distribution but excluded from the average, median and range.
 
 **Reveal.** The host can always reveal manually. With auto-reveal on:
 
@@ -611,8 +616,8 @@ cards are counted in the distribution but excluded from the average, median and 
 Observers never count toward either total, and card values are simply absent from the payload until a
 topic is revealed — a curious teammate cannot read them out of the network tab.
 
-**Finalising.** After the reveal the host picks the agreed number (the UI suggests the nearest
-Fibonacci card to the average). "Vote again" clears the round and reopens the topic.
+**Finalising.** After the reveal the host picks the agreed number (the UI suggests the card nearest to
+the average). "Vote again" clears the round and reopens the topic.
 
 ## Security notes
 

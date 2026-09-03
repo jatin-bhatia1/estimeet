@@ -144,6 +144,32 @@ $withRoster = Call POST '/rooms' $null @{
 Check 'a roster can be set while creating the session' `
     ($withRoster.state.room.expectedSize -eq 4 -and $withRoster.state.room.expectedNames.Count -eq 2)
 
+# --- the deck ----------------------------------------------------------------
+Write-Host "`nThe deck" -ForegroundColor Yellow
+$sized = Call POST '/rooms' $null @{
+    name = 'Smoke deck'; mode = 'async'; hostName = 'Ada'; autoReveal = $false
+    deck = @(' S ', 'M', 'm', '', 'L', '?')
+}
+$deckCode = $sized.roomCode
+$deckHost = $sized.token
+Check 'a custom deck is tidied up on create' (($sized.state.room.deck -join ' ') -eq 'S M L ?')
+
+$deckPlayer = (Call POST "/rooms/$deckCode/join" $null @{ name = 'Rex'; asObserver = $false }).token
+$deckTopic = (Call POST "/rooms/$deckCode/topics" $deckHost @{ topics = @(@{ title = 'Sizing'; description = '' }) }).topics[0].id
+
+Check 'a Fibonacci card is not in a T-shirt deck' `
+    ((StatusOf POST "/rooms/$deckCode/topics/$deckTopic/vote" $deckHost @{ value = '5' }) -eq 400)
+$state = Call POST "/rooms/$deckCode/topics/$deckTopic/vote" $deckHost @{ value = 'M' }
+Check 'a custom card is accepted' (($state.topics[0]).myVote -eq 'M')
+
+Check 'a non-host cannot change the deck' `
+    ((StatusOf PUT "/rooms/$deckCode/deck" $deckPlayer @{ cards = @('1', '2') }) -eq 403)
+Check 'a deck of one card is rejected' `
+    ((StatusOf PUT "/rooms/$deckCode/deck" $deckHost @{ cards = @('X', 'x') }) -eq 400)
+
+$state = Call PUT "/rooms/$deckCode/deck" $deckHost @{ cards = @() }
+Check 'an empty deck brings Fibonacci back' ($state.room.deck.Count -eq 13)
+
 # --- asynchronous room -------------------------------------------------------
 Write-Host "`nAsynchronous mode" -ForegroundColor Yellow
 $async = Call POST '/rooms' $null @{ name = 'Smoke async'; mode = 'async'; hostName = 'Grace'; autoReveal = $true }

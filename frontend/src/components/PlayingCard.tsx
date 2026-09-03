@@ -18,7 +18,7 @@ interface PlayingCardProps {
   footer?: ReactNode
 }
 
-/** PlayingCard renders one Fibonacci card, face up or face down. */
+/** PlayingCard renders one card of the room's deck, face up or face down. */
 export function PlayingCard({
   value,
   size = 'md',

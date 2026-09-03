@@ -1,5 +1,6 @@
 import { useState } from 'react'
 
+import { DeckPicker } from './DeckPicker'
 import type { ConnectionStatus } from '../lib/useRoomSocket'
 import type { RoomState } from '../lib/types'
 
@@ -14,14 +15,18 @@ interface RoomHeaderProps {
   state: RoomState
   status: ConnectionStatus
   onUpdateRoom: (input: { name: string; autoReveal: boolean }) => Promise<void>
+  onSetDeck: (cards: string[]) => Promise<void>
   onLeave: () => void
 }
 
-export function RoomHeader({ state, status, onUpdateRoom, onLeave }: RoomHeaderProps) {
+export function RoomHeader({ state, status, onUpdateRoom, onSetDeck, onLeave }: RoomHeaderProps) {
   const { room, me } = state
   const [copied, setCopied] = useState<'code' | 'link' | null>(null)
   const [editing, setEditing] = useState(false)
   const [draftName, setDraftName] = useState(room.name)
+  const [deckOpen, setDeckOpen] = useState(false)
+  const [draftDeck, setDraftDeck] = useState(room.deck)
+  const [savingDeck, setSavingDeck] = useState(false)
 
   const copy = async (what: 'code' | 'link') => {
     const value = what === 'code' ? room.code : window.location.href
@@ -37,6 +42,21 @@ export function RoomHeader({ state, status, onUpdateRoom, onLeave }: RoomHeaderP
   const save = async () => {
     await onUpdateRoom({ name: draftName, autoReveal: room.autoReveal })
     setEditing(false)
+  }
+
+  const openDeck = () => {
+    setDraftDeck(room.deck)
+    setDeckOpen(true)
+  }
+
+  const saveDeck = async () => {
+    setSavingDeck(true)
+    try {
+      await onSetDeck(draftDeck)
+      setDeckOpen(false)
+    } finally {
+      setSavingDeck(false)
+    }
   }
 
   return (
@@ -95,6 +115,15 @@ export function RoomHeader({ state, status, onUpdateRoom, onLeave }: RoomHeaderP
               auto-reveal
             </label>
           )}
+          {me.isHost && (
+            <button
+              type="button"
+              onClick={() => (deckOpen ? setDeckOpen(false) : openDeck())}
+              className="underline decoration-dotted underline-offset-4 transition hover:text-slate-300"
+            >
+              deck
+            </button>
+          )}
         </div>
       </div>
 
@@ -114,6 +143,26 @@ export function RoomHeader({ state, status, onUpdateRoom, onLeave }: RoomHeaderP
           Leave
         </button>
       </div>
+
+      {me.isHost && deckOpen && (
+        <div className="w-full rounded-xl border border-white/10 bg-black/20 p-3.5">
+          <DeckPicker deck={draftDeck} onChange={setDraftDeck} disabled={savingDeck} />
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="btn-primary !px-3 !py-1.5 !text-sm"
+              onClick={() => void saveDeck()}
+              disabled={savingDeck || draftDeck.length < 2}
+            >
+              {savingDeck ? 'Saving…' : 'Use this deck'}
+            </button>
+            <button type="button" className="btn-ghost !px-3 !py-1.5 !text-sm" onClick={() => setDeckOpen(false)}>
+              Cancel
+            </button>
+            <span className="text-xs text-slate-500">Cards already played stay put; the new deck is for what comes next.</span>
+          </div>
+        </div>
+      )}
     </header>
   )
 }

@@ -16,6 +16,7 @@ type createRoomRequest struct {
 	AutoReveal    *bool    `json:"autoReveal"`
 	ExpectedSize  int      `json:"expectedSize"`
 	ExpectedNames []string `json:"expectedNames"`
+	Deck          []string `json:"deck"`
 }
 
 type sessionResponse struct {
@@ -39,6 +40,7 @@ func (s *server) handleCreateRoom(w http.ResponseWriter, r *http.Request) {
 		AutoReveal:    req.AutoReveal,
 		ExpectedSize:  req.ExpectedSize,
 		ExpectedNames: req.ExpectedNames,
+		Deck:          req.Deck,
 	})
 	if err != nil {
 		writeError(w, r, err)
@@ -122,11 +124,28 @@ func (s *server) handleUpdateRoom(w http.ResponseWriter, r *http.Request) {
 	s.respondState(w, r, sess)
 }
 
+type deckRequest struct {
+	Cards []string `json:"cards"`
+}
+
+func (s *server) handleSetDeck(w http.ResponseWriter, r *http.Request) {
+	sess, _ := sessionFrom(r.Context())
+	var req deckRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, r, err)
+		return
+	}
+	if err := s.svc.SetDeck(r.Context(), sess, req.Cards); err != nil {
+		writeError(w, r, err)
+		return
+	}
+	s.respondState(w, r, sess)
+}
+
 type rosterRequest struct {
 	Size  int      `json:"size"`
 	Names []string `json:"names"`
 }
-
 func (s *server) handleSetRoster(w http.ResponseWriter, r *http.Request) {
 	sess, _ := sessionFrom(r.Context())
 	var req rosterRequest

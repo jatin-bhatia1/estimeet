@@ -69,6 +69,7 @@ export const api = {
     autoReveal: boolean
     expectedSize?: number
     expectedNames?: string[]
+    deck?: string[]
   }) =>
     request<SessionResponse>('/rooms', { method: 'POST', body: input }),
 
@@ -86,6 +87,9 @@ export const api = {
 
   setRoster: (code: string, token: string, input: { size: number; names: string[] }) =>
     request<RoomState>(`/rooms/${encodeURIComponent(code)}/roster`, { method: 'PUT', token, body: input }),
+
+  setDeck: (code: string, token: string, cards: string[]) =>
+    request<RoomState>(`/rooms/${encodeURIComponent(code)}/deck`, { method: 'PUT', token, body: { cards } }),
 
   updateProfile: (code: string, token: string, input: { name: string; isObserver: boolean }) =>
     request<RoomState>(`/rooms/${encodeURIComponent(code)}/me`, { method: 'PATCH', token, body: input }),

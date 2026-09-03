@@ -1,9 +1,10 @@
 import { type FormEvent, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { DEFAULT_DECK, DeckPicker } from '../components/DeckPicker'
 import { ApiError, api } from '../lib/api'
 import { recallName, rememberName, saveSession } from '../lib/session'
-import type { Mode, SessionResponse } from '../lib/types'
+import { cardLabel, type Mode, type SessionResponse } from '../lib/types'
 
 const MODE_COPY: Record<Mode, { title: string; blurb: string; accent: string }> = {
   sync: {
@@ -30,8 +31,9 @@ export default function HomePage() {
           Estimate together, in the room or across time zones.
         </h1>
         <p className="mt-4 max-w-2xl text-slate-400">
-          Fibonacci estimation for any topic your team needs to size. Pull the backlog straight out of
-          Jira, Azure DevOps or GitHub, or type it in yourself.
+          Planning poker that gets out of the way. Everyone plays a card, the reveal is honest, and the
+          conversation starts where the numbers disagree. Bring your backlog from Jira, Azure DevOps or
+          GitHub, or type it in as you go.
         </p>
       </header>
 
@@ -65,15 +67,19 @@ export default function HomePage() {
           <div className="panel p-5">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-300">The deck</h2>
             <div className="mt-3 flex flex-wrap gap-1.5">
-              {['0', '1', '2', '3', '5', '8', '13', '21', '34', '55', '89', '?', '☕'].map((card) => (
+              {DEFAULT_DECK.map((card) => (
                 <span
                   key={card}
                   className="flex h-9 w-7 items-center justify-center rounded-md border border-white/10 bg-white/5 text-xs font-semibold text-slate-300"
                 >
-                  {card}
+                  {cardLabel(card)}
                 </span>
               ))}
             </div>
+            <p className="mt-3 text-sm leading-relaxed text-slate-400">
+              Fibonacci unless you say otherwise. Pick T-shirt sizes, powers of two or your own cards when
+              you start the session, or change them later from the room.
+            </p>
           </div>
         </aside>
       </div>
@@ -105,6 +111,7 @@ function CreateForm({ navigate }: { navigate: Navigate }) {
   const [hostName, setHostName] = useState(recallName)
   const [mode, setMode] = useState<Mode>('sync')
   const [autoReveal, setAutoReveal] = useState(true)
+  const [deck, setDeck] = useState<string[]>(DEFAULT_DECK)
   const [expected, setExpected] = useState('')
   const [expectedNames, setExpectedNames] = useState('')
   const [busy, setBusy] = useState(false)
@@ -127,6 +134,7 @@ function CreateForm({ navigate }: { navigate: Navigate }) {
         autoReveal,
         expectedSize: Number(expected) || names.length,
         expectedNames: names,
+        deck,
       })
       persistAndGo(navigate, session)
     } catch (err) {
@@ -210,9 +218,13 @@ function CreateForm({ navigate }: { navigate: Navigate }) {
         </span>
       </label>
 
-      {/* The roster is optional and only ever used to show who is still
-          missing, so it sits in its own quiet block below the real settings. */}
       <fieldset className="rounded-xl border border-white/10 bg-black/20 p-3.5">
+        <legend className="px-1 text-sm text-slate-300">The deck</legend>
+        <DeckPicker deck={deck} onChange={setDeck} />
+      </fieldset>
+
+      {/* The roster is optional and only ever used to show who is still
+          missing, so it sits in its own quiet block below the real settings. */}      <fieldset className="rounded-xl border border-white/10 bg-black/20 p-3.5">
         <legend className="px-1 text-sm text-slate-300">
           Who are you expecting? <span className="text-xs text-slate-500">(optional)</span>
         </legend>
@@ -248,7 +260,7 @@ function CreateForm({ navigate }: { navigate: Navigate }) {
 
       {error && <p className="text-sm text-rose-300">{error}</p>}
 
-      <button type="submit" className="btn-primary w-full" disabled={busy}>
+      <button type="submit" className="btn-primary w-full" disabled={busy || deck.length < 2}>
         {busy ? 'Creating…' : 'Create session'}
       </button>
     </form>

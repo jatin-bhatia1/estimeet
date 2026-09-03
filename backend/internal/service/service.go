@@ -32,6 +32,11 @@ const (
 	MaxTopicsPerRoom   = 500
 	MaxPlayersPerRoom  = 100
 	MaxTopicsPerImport = 100
+	// A card has to stay readable at the size a card is drawn, and a deck has to
+	// fit on one row on a laptop. Six characters is what the "coffee" card needs.
+	MaxCardLen  = 6
+	MaxDeckSize = 16
+	MinDeckSize = 2
 )
 
 // Service is the application façade used by the HTTP layer.
@@ -113,6 +118,8 @@ type CreateRoomInput struct {
 	// the host is waiting for, and any names they already know.
 	ExpectedSize  int
 	ExpectedNames []string
+	// Deck is the set of cards this room votes with. Empty means Fibonacci.
+	Deck []string
 }
 
 // CreatedRoom is returned once, and carries the new participant's bearer token.
@@ -147,12 +154,17 @@ func (s *Service) CreateRoom(ctx context.Context, in CreateRoomInput) (CreatedRo
 		return CreatedRoom{}, err
 	}
 
+	deck, err := normaliseDeck(in.Deck)
+	if err != nil {
+		return CreatedRoom{}, err
+	}
+
 	now := s.now()
 	room := domain.Room{
 		ID:            uuid.NewString(),
 		Name:          name,
 		Mode:          in.Mode,
-		Deck:          domain.DefaultDeck(),
+		Deck:          deck,
 		AutoReveal:    autoReveal,
 		CreatedAt:     now,
 		ExpectedSize:  size,
@@ -316,6 +328,50 @@ func (s *Service) UpdateRoomSettings(ctx context.Context, sess Session, name str
 	}
 	s.publish(sess.Room.ID, "room.updated", nil)
 	return nil
+}
+
+// SetDeck replaces the cards this room votes with (host only). Cards already
+// played are left alone: the change applies to whatever is voted on next.
+func (s *Service) SetDeck(ctx context.Context, sess Session, cards []string) error {
+	if err := requireHost(sess); err != nil {
+		return err
+	}
+	deck, err := normaliseDeck(cards)
+	if err != nil {
+		return err
+	}
+	if err := s.store.SetDeck(ctx, sess.Room.ID, deck); err != nil {
+		return err
+	}
+	s.publish(sess.Room.ID, "room.updated", nil)
+	return nil
+}
+
+// normaliseDeck tidies a deck the host typed. An empty list means the default,
+// which is how the UI offers "back to Fibonacci".
+func normaliseDeck(cards []string) ([]string, error) {
+	out := make([]string, 0, len(cards))
+	seen := make(map[string]bool, len(cards))
+	for _, raw := range cards {
+		// A card is a label on a small tile, so it holds no whitespace at all.
+		card := clean(strings.Join(strings.Fields(raw), ""), MaxCardLen)
+		key := strings.ToLower(card)
+		if card == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, card)
+	}
+	if len(out) == 0 {
+		return domain.DefaultDeck(), nil
+	}
+	if len(out) < MinDeckSize {
+		return nil, fmt.Errorf("%w: a deck needs at least %d cards", domain.ErrInvalid, MinDeckSize)
+	}
+	if len(out) > MaxDeckSize {
+		return nil, fmt.Errorf("%w: a deck holds at most %d cards", domain.ErrInvalid, MaxDeckSize)
+	}
+	return out, nil
 }
 
 // SetRoster records how many people are expected and, optionally, their names,
@@ -780,8 +836,9 @@ func (s *Service) FinalizeTopic(ctx context.Context, sess Session, topicID, esti
 	if !domain.DeckContains(sess.Room.Deck, estimate) {
 		return fmt.Errorf("%w: %q is not a card in this deck", domain.ErrInvalid, estimate)
 	}
-	if _, ok := domain.NumericValue(estimate); !ok {
-		return fmt.Errorf("%w: the final estimate must be a number", domain.ErrInvalid)
+	// The escape cards say "I don't know" and "not now", which is never a result.
+	if estimate == domain.CardUnknown || estimate == domain.CardCoffee {
+		return fmt.Errorf("%w: %q is not an estimate", domain.ErrInvalid, estimate)
 	}
 	if err := s.store.FinalizeTopic(ctx, topic.ID, &estimate); err != nil {
 		return err

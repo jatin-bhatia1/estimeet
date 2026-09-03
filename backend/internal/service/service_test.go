@@ -260,7 +260,7 @@ func TestOnlyHostCanRevealResetAndEstimate(t *testing.T) {
 	}
 }
 
-func TestFinalizeRequiresRevealAndNumericCard(t *testing.T) {
+func TestFinalizeRequiresRevealAndARealCard(t *testing.T) {
 	svc := newService(t)
 	host := newRoom(t, svc, domain.ModeAsync)
 	topics := addTopics(t, svc, host, "Login")
@@ -272,7 +272,7 @@ func TestFinalizeRequiresRevealAndNumericCard(t *testing.T) {
 		t.Fatalf("reveal: %v", err)
 	}
 	if err := svc.FinalizeTopic(context.Background(), host, topics[0].ID, domain.CardUnknown); !errors.Is(err, domain.ErrInvalid) {
-		t.Fatalf("err = %v, want ErrInvalid for a non-numeric card", err)
+		t.Fatalf("err = %v, want ErrInvalid for an escape card", err)
 	}
 	if err := svc.FinalizeTopic(context.Background(), host, topics[0].ID, "13"); err != nil {
 		t.Fatalf("finalize: %v", err)
@@ -284,6 +284,39 @@ func TestFinalizeRequiresRevealAndNumericCard(t *testing.T) {
 	}
 	if state.Topics[0].Status != domain.StatusEstimated {
 		t.Fatalf("status = %v, want estimated", state.Topics[0].Status)
+	}
+}
+
+// A deck without numbers still has to reach an agreed size.
+func TestFinalizeAcceptsALetterFromACustomDeck(t *testing.T) {
+	svc := newService(t)
+	created, err := svc.CreateRoom(context.Background(), service.CreateRoomInput{
+		Name:     "Sizing",
+		Mode:     domain.ModeAsync,
+		HostName: "Ada",
+		Deck:     []string{"S", "M", "L", domain.CardUnknown},
+	})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+	host, err := svc.Authenticate(context.Background(), created.Token)
+	if err != nil {
+		t.Fatalf("authenticate host: %v", err)
+	}
+	topics := addTopics(t, svc, host, "Login")
+	if err := svc.RevealTopic(context.Background(), host, topics[0].ID); err != nil {
+		t.Fatalf("reveal: %v", err)
+	}
+
+	if err := svc.FinalizeTopic(context.Background(), host, topics[0].ID, "L"); err != nil {
+		t.Fatalf("finalize: %v", err)
+	}
+	state, _ := svc.State(context.Background(), host.Room.ID, host.Participant.ID)
+	if state.Topics[0].Status != domain.StatusEstimated {
+		t.Fatalf("status = %v, want estimated", state.Topics[0].Status)
+	}
+	if state.Summary.TotalPoints != nil {
+		t.Fatalf("totalPoints = %v, want none for a deck with no numbers", *state.Summary.TotalPoints)
 	}
 }
 
@@ -407,6 +440,58 @@ func TestSetRosterIsHostOnly(t *testing.T) {
 	}
 	if err := svc.SetRoster(context.Background(), host, 10_000, nil); !errors.Is(err, domain.ErrInvalid) {
 		t.Fatalf("err = %v, want ErrInvalid for an absurd headcount", err)
+	}
+}
+
+func TestCreateRoomWithACustomDeck(t *testing.T) {
+	svc := newService(t)
+	created, err := svc.CreateRoom(context.Background(), service.CreateRoomInput{
+		Name:     "Sizing",
+		Mode:     domain.ModeAsync,
+		HostName: "Ada",
+		Deck:     []string{" S ", "M", "m", "", "L"},
+	})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+	if got := created.Room.Deck; len(got) != 3 || got[0] != "S" || got[1] != "M" || got[2] != "L" {
+		t.Fatalf("deck = %v, want [S M L]", got)
+	}
+}
+
+func TestSetDeckIsHostOnlyAndValidated(t *testing.T) {
+	svc := newService(t)
+	host := newRoom(t, svc, domain.ModeSync)
+	guest := join(t, svc, host.Room.Code, "Jay", false)
+
+	if err := svc.SetDeck(context.Background(), guest, []string{"S", "M"}); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("err = %v, want ErrForbidden", err)
+	}
+	if err := svc.SetDeck(context.Background(), host, []string{"S", "s"}); !errors.Is(err, domain.ErrInvalid) {
+		t.Fatalf("err = %v, want ErrInvalid for a one-card deck", err)
+	}
+
+	if err := svc.SetDeck(context.Background(), host, []string{"S", "M", "L"}); err != nil {
+		t.Fatalf("set deck: %v", err)
+	}
+	state, err := svc.State(context.Background(), host.Room.ID, host.Participant.ID)
+	if err != nil {
+		t.Fatalf("state: %v", err)
+	}
+	if got := state.Room.Deck; len(got) != 3 || got[0] != "S" {
+		t.Fatalf("deck = %v, want [S M L]", got)
+	}
+
+	// An empty list is how the UI asks for the default deck back.
+	if err := svc.SetDeck(context.Background(), host, nil); err != nil {
+		t.Fatalf("reset deck: %v", err)
+	}
+	state, err = svc.State(context.Background(), host.Room.ID, host.Participant.ID)
+	if err != nil {
+		t.Fatalf("state: %v", err)
+	}
+	if len(state.Room.Deck) != len(domain.DefaultDeck()) {
+		t.Fatalf("deck = %v, want the default deck", state.Room.Deck)
 	}
 }
 

@@ -89,6 +89,7 @@ export default function RoomPage() {
       deleteTopic: (topicId) => run(() => api.deleteTopic(roomCode, t, topicId)),
       kick: (participantId) => run(() => api.kick(roomCode, t, participantId)),
       updateRoom: (input) => run(() => api.updateRoom(roomCode, t, input)),
+      setDeck: (cards) => run(() => api.setDeck(roomCode, t, cards)),
       setRoster: (input) => run(() => api.setRoster(roomCode, t, input)),
       applyState,
     }
@@ -138,7 +139,13 @@ export default function RoomPage() {
         </div>
       )}
 
-      <RoomHeader state={state} status={status} onUpdateRoom={actions.updateRoom} onLeave={leave} />
+      <RoomHeader
+        state={state}
+        status={status}
+        onUpdateRoom={actions.updateRoom}
+        onSetDeck={actions.setDeck}
+        onLeave={leave}
+      />
 
       <div className="mt-5 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <main className="min-w-0">

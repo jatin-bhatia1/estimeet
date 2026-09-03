@@ -134,6 +134,16 @@ func (s *Store) UpdateRoomSettings(ctx context.Context, roomID, name string, aut
 	return err
 }
 
+// SetDeck replaces the cards a room votes with.
+func (s *Store) SetDeck(ctx context.Context, roomID string, deck []string) error {
+	encoded, err := json.Marshal(deck)
+	if err != nil {
+		return fmt.Errorf("marshal deck: %w", err)
+	}
+	_, err = s.exec(ctx, `UPDATE rooms SET deck = ? WHERE id = ?`, string(encoded), roomID)
+	return err
+}
+
 // ---------------------------------------------------------------- participants
 
 const participantColumns = `id, room_id, name, is_host, is_observer, joined_at, last_seen_at`

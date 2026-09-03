@@ -1,5 +1,5 @@
 import type { ParticipantView, TopicView } from '../lib/types'
-import { cardLabel } from '../lib/types'
+import { COFFEE_CARD, cardLabel } from '../lib/types'
 import { PlayingCard } from './PlayingCard'
 
 interface ResultsPanelProps {
@@ -15,7 +15,8 @@ interface ResultsPanelProps {
 export function ResultsPanel({ topic, deck, participants, isHost, onReset, onEstimate }: ResultsPanelProps) {
   const stats = topic.stats
   const maxCount = stats?.distribution.reduce((max, entry) => Math.max(max, entry.count), 0) ?? 0
-  const numericDeck = deck.filter((card) => card !== '?' && card !== 'coffee')
+  // The escape cards are answers, not sizes, so they cannot be agreed on.
+  const agreeable = deck.filter((card) => card !== '?' && card !== COFFEE_CARD)
   const byId = new Map(participants.map((p) => [p.id, p]))
 
   return (
@@ -84,7 +85,7 @@ export function ResultsPanel({ topic, deck, participants, isHost, onReset, onEst
             )}
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            {numericDeck.map((card) => (
+            {agreeable.map((card) => (
               <button
                 key={card}
                 type="button"
