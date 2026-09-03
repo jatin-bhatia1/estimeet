@@ -39,12 +39,19 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     headers.Authorization = `Bearer ${token}`
   }
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers,
-    signal,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers,
+      signal,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  } catch (err) {
+    // A request that never left the browser has no status to report.
+    if (err instanceof DOMException && err.name === 'AbortError') throw err
+    throw new ApiError(0, 'Could not reach the server. Check your connection and try again.')
+  }
 
   if (!response.ok) {
     let message = `Request failed (${response.status})`
