@@ -31,9 +31,14 @@ export default function HomePage() {
           Estimate together, in the room or across time zones.
         </h1>
         <p className="mt-4 max-w-2xl text-slate-400">
-          Planning poker that gets out of the way. Everyone plays a card, the reveal is honest, and the
-          conversation starts where the numbers disagree. Bring your backlog from Jira, Azure DevOps or
-          GitHub, or type it in as you go.
+          <span className="block text-slate-200">A room in two clicks, an estimate in two minutes.</span>
+          <span className="mt-2 block">
+            No accounts, no setup. Share a room, everyone plays a card, and the numbers you disagreed on
+            are the only thing left to discuss.
+          </span>
+          <span className="mt-2 block">
+            Import from Jira, Azure DevOps or GitHub, or write the list yourself.
+          </span>
         </p>
       </header>
 
