@@ -1,6 +1,6 @@
 # Estimeet
 
-**Planning poker for your backlog — live in a call, or on your own time.**
+**A room in two clicks, an estimate in two minutes.**
 
 Estimeet is a planning-poker app for sizing anything your team needs to estimate. Topics come from a
 Jira epic, an Azure DevOps feature, a GitHub milestone or the built-in composer, everyone plays a card
@@ -206,7 +206,7 @@ go test ./...
 cd frontend
 npm run build
 
-# end-to-end: 45 assertions against a running API
+# end-to-end: 51 assertions against a running API
 pwsh ./scripts/smoke.ps1
 ```
 
@@ -271,7 +271,8 @@ repository. Run that image anywhere (Fly, Render, a VM, your own Kubernetes) and
 
 Pages cannot host the API, so it needs a home of its own. What Estimeet asks of a host is modest but
 specific: **one instance** (the board is broadcast in memory), **WebSockets**, and **a disk that
-survives a restart**, because the whole database is one SQLite file.
+survives a restart**, because the whole database is one SQLite file. An idle timeout below 25 seconds
+will also drop live boards — that is the server's WebSocket ping interval.
 
 | Host | Cost | The catch |
 | --- | --- | --- |
@@ -303,65 +304,19 @@ A free Render Postgres fixes the second problem for 30 days, after which it expi
 Hosts that hand the port to the process as `PORT` are supported: `ESTIMEET_ADDR` wins when it is set,
 and `PORT` fills in when it is not.
 
-### On a managed *App on Fargate* (Siemens SDC)
-
-The platform owns the task definition, the load balancer and the certificate; the repository only has
-to produce an image and push it to ECR. [.gitlab-ci.yml](.gitlab-ci.yml) does that — assume an AWS
-role through OIDC, then build with Kaniko. There are no secrets to store: the OIDC token is minted per
-job. Two **project CI/CD variables** name the target, and the pipeline stops early without them:
-
-| Variable | Where it comes from |
-| --- | --- |
-| `AWS_GITLAB_ROLE_NAME` | the *Gitlab Repository* component — the role **name**, not the ARN |
-| `ECR_REPO_URL` | the *App on Fargate* component — `<account>.dkr.ecr.<region>.amazonaws.com/<repo>` |
-
-They live in **Settings → CI/CD → Variables** rather than in the file, because they carry an AWS
-account id and this repository is mirrored to a public GitHub remote. Neither can be *Masked* — a role
-name is too short and the URL contains dots and a slash — so mark them *Protected* and protect `main`.
-`AWS_REGION` in the file has to match the region inside `ECR_REPO_URL`.
-
-**One image, one ECR repository.** The Dockerfile builds the React UI and the Go API and ships them in
-the same image, with the API serving the built files, so there is nothing to split into a second
-container.
-
-What this platform imposes, and how the repo answers it:
-
-| It requires | Here |
-| --- | --- |
-| The container listens on **8000** — the auth sidecar proxies to `127.0.0.1:8000` | The image sets `PORT=8000` |
-| An unauthenticated **`/health`** for the target group | Served at the root as well as `/api/health` |
-| A **`latest`** tag to deploy | Pushed, alongside the commit sha |
-| No persistent volume | Set `ESTIMEET_DB_URL`; see below |
-
-Two things to know before deploying:
-
-- **The task has no EFS volume**, so the SQLite file lives on the container's own disk and disappears
-  with every deploy. Point `ESTIMEET_DB_URL` at a Postgres database, or accept that sessions are lost
-  on each release.
-- **The sidecar has to forward WebSocket upgrades**, or boards will fall back to nothing — the whole
-  live view is one socket. If it terminates the connection instead, set `ESTIMEET_ALLOWED_ORIGINS` to
-  the app's public URL first: the origin check compares against the browser's origin, and a sidecar
-  that rewrites `Host` breaks the same-origin shortcut.
-
-Two more things hold on any Fargate service, managed or not. **Run exactly one task**: the board is
-broadcast from each process's memory, so a second task serves a different room to whoever lands on it,
-and with SQLite a rolling deploy that briefly runs two tasks will corrupt the file. And **an idle
-timeout below 25 seconds will drop live boards** — that is the server's WebSocket ping interval, and it
-is chosen to sit comfortably inside an ALB's 60-second default.
-
 Every default in this repository points at a laptop, so a deployment that sets nothing runs as if it
-were on `localhost`. The full set to put on the component:
+were on `localhost`. The full set to put on the host:
 
 | Variable | Value | If you skip it |
 | --- | --- | --- |
 | `ESTIMEET_SECRET` | 32 random characters, invented once and never rotated | **The container exits at startup and the load balancer answers 503** |
-| `ESTIMEET_ALLOWED_ORIGINS` | the `subdomainUrl` from the SDC console | The origin allowlist still says `localhost:5173` |
+| `ESTIMEET_ALLOWED_ORIGINS` | the public URL of the deployment | The origin allowlist still says `localhost:5173` |
 | `ESTIMEET_APP_BASE_URL` | the same URL | Jira sends the browser back to `localhost` after the OAuth dance |
 | `ESTIMEET_DB_*` | see below | Every deploy starts with an empty database |
-| `JIRA_REDIRECT_URI` | `<subdomainUrl>/api/jira/callback` | Only matters if you enable Jira OAuth; the default is a localhost URL |
+| `JIRA_REDIRECT_URI` | `<public URL>/api/jira/callback` | Only matters if you enable Jira OAuth; the default is a localhost URL |
 
-The UI needs nothing: it is built without `VITE_API_BASE_URL`, so it calls `/api` relative to whatever
-host serves it.
+None of this applies to the UI when the image serves it: it is built without `VITE_API_BASE_URL`, so
+it calls `/api` relative to whatever host serves it.
 
 ### PostgreSQL instead of SQLite
 
@@ -385,9 +340,10 @@ The password is URL-encoded on the way in, which is the reason to prefer the par
 containing `@`, `/` or `?` pasted straight into a URL produces a DSN that fails to parse, or worse,
 parses into the wrong host.
 
-This exists for platforms where a file is the awkward part. On Fargate, SQLite means an EFS volume,
-exactly one task, and no rolling deploys; with Postgres the task keeps no state, so it can be scaled
-and redeployed normally. AWS's serverless relational option is **Aurora Serverless v2 (PostgreSQL)** —
+This exists for platforms where a file is the awkward part. A host with no volume means SQLite lives
+on a disk that is wiped by every deploy, and one file means exactly one instance and no rolling
+releases; with Postgres the process keeps no state, so it can be redeployed normally. AWS's
+serverless relational option is **Aurora Serverless v2 (PostgreSQL)** —
 a cluster with a minimum capacity of 0 ACU scales to zero when idle, and takes a few seconds to wake
 on the first query, which the server waits out for up to 45 seconds at startup.
 
@@ -472,8 +428,7 @@ The image already sets `ESTIMEET_ENV=production`, `ESTIMEET_STATIC_DIR=/srv/web`
 **Mount `/data` on a real volume** — that is the whole database.
 
 **The container listens on 8000**, not the 8090 used in development: it sets `PORT=8000`, which
-`ESTIMEET_ADDR` falls back to. Managed Fargate platforms put an authenticating sidecar in front of the
-container and proxy to `127.0.0.1:8000`, and a host that assigns its own `PORT` still overrides it.
+`ESTIMEET_ADDR` falls back to. A host that assigns its own `PORT` still overrides it.
 
 ### Getting the settings to the deployed API
 
@@ -638,7 +593,7 @@ the average). "Vote again" clears the round and reopens the topic.
 | `connection forcibly closed` on port 8090 | Something else owns the port. Check with `Get-NetTCPConnection -LocalPort 8090 -State Listen`, then set `ESTIMEET_ADDR=":9000"` and update `target` in `frontend/vite.config.ts`. |
 | Header shows **offline** / board stops updating | The WebSocket was blocked. In production make sure the reverse proxy forwards upgrades; locally make sure the API is actually running. |
 | `ESTIMEET_SECRET must be set outside development` | `ESTIMEET_ENV=production` requires an explicit 16+ character secret. |
-| **503** from a load balancer, nothing in the access log | The container never listened, so the target group has no healthy target. It is not an auth problem — that would be a 401 or a redirect. Read the task's log: a configuration error exits before the first log line about listening. `ESTIMEET_SECRET` is the usual one, because the image sets `ESTIMEET_ENV=production`. |
+| **503** from a load balancer, nothing in the access log | The container never listened, so there is no healthy target behind the balancer. It is not an auth problem — that would be a 401 or a redirect. Read the container's log: a configuration error exits before the first log line about listening. `ESTIMEET_SECRET` is the usual one, because the image sets `ESTIMEET_ENV=production`. |
 | Creating a session lands you back on the join screen, and your own name is *already taken* | The room and your seat were created; the follow-up authenticated call was refused, so the page dropped the session. Behind an authenticating proxy this used to mean the session token was being stripped from `Authorization` — the token now travels in `X-Estimeet-Token` as well, so a proxy on an older build is the thing to check. |
 | Jira panel says *not configured* | All three of `JIRA_CLIENT_ID`, `JIRA_CLIENT_SECRET`, `JIRA_REDIRECT_URI` must be set, and the API restarted. |
 | Jira returns `invalid redirect_uri` | `JIRA_REDIRECT_URI` must match the Atlassian app registration character for character. |
