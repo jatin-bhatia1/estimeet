@@ -146,6 +146,7 @@ type rosterRequest struct {
 	Size  int      `json:"size"`
 	Names []string `json:"names"`
 }
+
 func (s *server) handleSetRoster(w http.ResponseWriter, r *http.Request) {
 	sess, _ := sessionFrom(r.Context())
 	var req rosterRequest
