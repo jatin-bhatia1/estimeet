@@ -3,20 +3,29 @@
 # to GHCR; neither pipeline knows about the other.
 #
 # One image is enough: the Dockerfile builds the React UI and the Go API and
-# ships them together, with the API serving the built UI. So one ECR repository,
-# one container in the task.
+# ships them together, with the API serving the built UI. So one ECR repository
+# per environment, one container in the task.
 #
-# The two values that name the deployment target are project CI/CD variables,
-# not literals in this file - see workflow.rules below.
+# Three environments live in three AWS accounts:
+#
+#   main branch  -> dev and staging
+#   prod branch  -> production
+#   a new tag    -> fast-forwards the prod branch, which then deploys
+#
+# Nothing here names an account: the repository URLs and the role names are
+# project CI/CD variables - see workflow.rules below.
 
-stages: [assume_role, push]
+stages: [assume_role, push, promote]
 
 variables:
-  # Must be the region inside ECR_REPO_URL.
+  # Must be the region inside every ECR_REPO_URL_*.
   AWS_REGION: "eu-west-1"
   # Deployments follow the `latest` tag; the commit tag is pushed alongside it
   # so a running task can be traced back to a commit.
   IMAGE_TAG: "latest"
+  # The branch production deploys from. Protect it, and let only the promote job
+  # below write to it.
+  PROD_BRANCH: "prod"
   # Base images are pulled through this prefix. Point it at the GitLab
   # dependency proxy if the runner cannot reach Docker Hub.
   IMAGE_PREFIX: "docker.io"
@@ -28,45 +37,65 @@ variables:
 
 workflow:
   rules:
-    # Only main is deployed, and AWS_GITLAB_ROLE_NAME and ECR_REPO_URL come from
-    # the project's CI/CD variables (Settings -> CI/CD -> Variables) rather than
-    # from this file. They carry an AWS account id and a role name, and this
-    # repository is mirrored to a public GitHub remote.
-    #   AWS_GITLAB_ROLE_NAME  the role *name*, from the Gitlab Repository component
-    #   ECR_REPO_URL          <account>.dkr.ecr.<region>.amazonaws.com/<repo>,
-    #                         from the App on Fargate component
-    # Neither can be masked: a role name is too short and a URL contains dots
-    # and a slash. Protect them instead, and protect the main branch.
+    # What each job deploys to comes from the project's CI/CD variables
+    # (Settings -> CI/CD -> Variables) rather than from this file. They carry
+    # AWS account ids and role names, and this repository is mirrored to a
+    # public GitHub remote.
+    #   ECR_REPO_URL_DEV      <account>.dkr.ecr.<region>.amazonaws.com/<repo>,
+    #   ECR_REPO_URL_STAGING  one per account, all from the App on Fargate
+    #   ECR_REPO_URL_PROD     component of that environment
+    #   AWS_GITLAB_ROLE_NAME  the role *name*, from the Gitlab Repository
+    #                         component. A per-account override is read first:
+    #                         AWS_GITLAB_ROLE_NAME_DEV, _STAGING, _PROD. The
+    #                         role has to exist in the account that owns the
+    #                         repository it pushes to, and to trust this project.
+    #   PROD_BRANCH_TOKEN     a project access token with write_repository,
+    #                         used by sync_prod_branch and nothing else
+    # Only the token can be masked: a role name is too short and a URL contains
+    # dots and a slash. Protect the rest, and protect main and prod.
     - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: "$CI_COMMIT_BRANCH == $PROD_BRANCH"
+    - if: "$CI_COMMIT_TAG"
     # Any other branch would push the same :latest tag, which is what the
     # platform deploys, so it gets no pipeline at all. Tests run on GitHub.
     - when: never
 
-before_script:
-  - |
-    # A CI/CD variable keeps exactly what was pasted into the form, and a
-    # trailing space or carriage return survives every echo invisibly. It also
-    # slips past a `.+$` check, because $ matches after it - and then kaniko
-    # rejects the repository name for a character it will not print. So strip
-    # first, validate second.
-    ECR_REPO_URL="$(printf '%s' "$ECR_REPO_URL" | tr -d '[:space:]')"
-    AWS_GITLAB_ROLE_NAME="$(printf '%s' "$AWS_GITLAB_ROLE_NAME" | tr -d '[:space:]')"
-    IMAGE_TAG="$(printf '%s' "$IMAGE_TAG" | tr -d '[:space:]')"
-    export ECR_REPO_URL AWS_GITLAB_ROLE_NAME IMAGE_TAG
+# Turns $TARGET_ENV into the account a job works against. Everything that talks
+# to AWS extends this.
+.target:
+  before_script:
+    - |
+      if [ -z "$TARGET_ENV" ]; then
+        echo "TARGET_ENV is not set; this job extends .target but never says which account it means."
+        exit 1
+      fi
 
-    echo "$ECR_REPO_URL" | grep -Eqx '[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com/[a-z0-9._/-]+' || {
-      echo "ECR_REPO_URL is not <account-id>.dkr.ecr.<region>.amazonaws.com/<repository>; check it under Settings -> CI/CD -> Variables."
-      echo "Got: [$ECR_REPO_URL]"
-      exit 1
-    }
-    if [ -z "$AWS_GITLAB_ROLE_NAME" ]; then
-      echo "AWS_GITLAB_ROLE_NAME is not set; add it under Settings -> CI/CD -> Variables."
-      exit 1
-    fi
-    export AWS_ROLE_ARN="arn:aws:iam::$(echo "$ECR_REPO_URL" | cut -d'.' -f1):role/${AWS_GITLAB_ROLE_NAME}"
-    echo "Using AWS_ROLE_ARN=$AWS_ROLE_ARN"
+      # A CI/CD variable keeps exactly what was pasted into the form, and a
+      # trailing space or carriage return survives every echo invisibly. It also
+      # slips past a `.+$` check, because $ matches after it - and then kaniko
+      # rejects the repository name for a character it will not print. So strip
+      # first, validate second.
+      eval "ECR_REPO_URL=\${ECR_REPO_URL_${TARGET_ENV}:-}"
+      eval "AWS_GITLAB_ROLE_NAME=\${AWS_GITLAB_ROLE_NAME_${TARGET_ENV}:-\$AWS_GITLAB_ROLE_NAME}"
+      ECR_REPO_URL="$(printf '%s' "$ECR_REPO_URL" | tr -d '[:space:]')"
+      AWS_GITLAB_ROLE_NAME="$(printf '%s' "$AWS_GITLAB_ROLE_NAME" | tr -d '[:space:]')"
+      IMAGE_TAG="$(printf '%s' "$IMAGE_TAG" | tr -d '[:space:]')"
+      export ECR_REPO_URL AWS_GITLAB_ROLE_NAME IMAGE_TAG
 
-assume_role:
+      echo "$ECR_REPO_URL" | grep -Eqx '[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com/[a-z0-9._/-]+' || {
+        echo "ECR_REPO_URL_${TARGET_ENV} is not <account-id>.dkr.ecr.<region>.amazonaws.com/<repository>; check it under Settings -> CI/CD -> Variables."
+        echo "Got: [$ECR_REPO_URL]"
+        exit 1
+      }
+      if [ -z "$AWS_GITLAB_ROLE_NAME" ]; then
+        echo "Neither AWS_GITLAB_ROLE_NAME_${TARGET_ENV} nor AWS_GITLAB_ROLE_NAME is set; add one under Settings -> CI/CD -> Variables."
+        exit 1
+      fi
+      export AWS_ROLE_ARN="arn:aws:iam::$(echo "$ECR_REPO_URL" | cut -d'.' -f1):role/${AWS_GITLAB_ROLE_NAME}"
+      echo "Target ${TARGET_ENV}: AWS_ROLE_ARN=$AWS_ROLE_ARN"
+
+.assume_role:
+  extends: .target
   stage: assume_role
   image:
     name: amazon/aws-cli:2.11.2
@@ -75,7 +104,7 @@ assume_role:
   id_tokens:
     AWS_DEPLOY_TOKEN:
       # CONFIGURE ME: must match the audience on the AWS IAM OIDC provider that
-      # trusts this GitLab instance.
+      # trusts this GitLab instance. Each account needs its own provider.
       aud: https://code.siemens.com
   script:
     - >
@@ -93,9 +122,13 @@ assume_role:
     reports: { dotenv: auth.env }
     expire_in: 30m
 
-push_with_kaniko:
+# Every account builds its own image. Kaniko carries one set of AWS credentials,
+# and a role in one account cannot write to a repository in another unless that
+# repository invites it by policy; a second build is cheaper than that argument,
+# and each account then holds an image nothing outside it can move.
+.push_with_kaniko:
+  extends: .target
   stage: push
-  needs: ["assume_role"]
   image:
     name: gcr.io/kaniko-project/executor:debug
     entrypoint: [""]
@@ -116,3 +149,70 @@ push_with_kaniko:
       --build-arg NO_PROXY="${NO_PROXY}"
       --snapshot-mode=redo
       --use-new-run
+
+assume_role_dev:
+  extends: .assume_role
+  variables: { TARGET_ENV: "DEV" }
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+push_dev:
+  extends: .push_with_kaniko
+  needs: ["assume_role_dev"]
+  variables: { TARGET_ENV: "DEV" }
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+assume_role_staging:
+  extends: .assume_role
+  variables: { TARGET_ENV: "STAGING" }
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+push_staging:
+  extends: .push_with_kaniko
+  needs: ["assume_role_staging"]
+  variables: { TARGET_ENV: "STAGING" }
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+assume_role_prod:
+  extends: .assume_role
+  variables: { TARGET_ENV: "PROD" }
+  rules:
+    - if: "$CI_COMMIT_BRANCH == $PROD_BRANCH"
+
+push_prod:
+  extends: .push_with_kaniko
+  needs: ["assume_role_prod"]
+  variables: { TARGET_ENV: "PROD" }
+  rules:
+    - if: "$CI_COMMIT_BRANCH == $PROD_BRANCH"
+
+# Tagging is the release. This job moves the prod branch up to the tagged commit
+# and stops there: that push starts a pipeline of its own, and that pipeline is
+# what builds and deploys production. So a tag builds nothing itself, and the
+# prod branch only ever points at a commit somebody tagged deliberately.
+sync_prod_branch:
+  stage: promote
+  image:
+    name: alpine/git:2.45.2
+    entrypoint: [""]
+  variables:
+    # The push has to carry the tagged commit's history, which the shallow clone
+    # a pipeline normally does would not have.
+    GIT_DEPTH: "0"
+  rules:
+    - if: "$CI_COMMIT_TAG"
+  script:
+    - |
+      if [ -z "$PROD_BRANCH_TOKEN" ]; then
+        echo "PROD_BRANCH_TOKEN is not set. Create a project access token with the write_repository scope,"
+        echo "allow it to push to the protected ${PROD_BRANCH} branch, and add it as a masked CI/CD variable."
+        exit 1
+      fi
+    # A tag pipeline checks out a detached HEAD at the tagged commit, so HEAD is
+    # already exactly what production should run. The push is a fast-forward: if
+    # it is rejected, somebody has committed to prod directly.
+    - git push "https://gitlab-ci-token:${PROD_BRANCH_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" "HEAD:refs/heads/${PROD_BRANCH}"
+    - echo "${PROD_BRANCH} now points at ${CI_COMMIT_TAG} (${CI_COMMIT_SHORT_SHA}); its pipeline deploys production."
