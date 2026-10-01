@@ -581,11 +581,11 @@ func (s *Service) ReorderTopics(ctx context.Context, sess Session, orderedIDs []
 
 // SetCurrentTopic focuses the room on one topic. Synchronous rooms only.
 func (s *Service) SetCurrentTopic(ctx context.Context, sess Session, topicID string) error {
-	if err := requireHost(sess); err != nil {
-		return err
-	}
 	if sess.Room.Mode != domain.ModeSync {
 		return fmt.Errorf("%w: asynchronous rooms have no shared current topic", domain.ErrConflict)
+	}
+	if err := s.requireTopicControl(ctx, sess); err != nil {
+		return err
 	}
 	topic, err := s.store.TopicByID(ctx, sess.Room.ID, topicID)
 	if err != nil {
@@ -600,11 +600,11 @@ func (s *Service) SetCurrentTopic(ctx context.Context, sess Session, topicID str
 
 // AdvanceCurrentTopic steps to the next or previous topic. Synchronous rooms only.
 func (s *Service) AdvanceCurrentTopic(ctx context.Context, sess Session, direction string) error {
-	if err := requireHost(sess); err != nil {
-		return err
-	}
 	if sess.Room.Mode != domain.ModeSync {
 		return fmt.Errorf("%w: asynchronous rooms have no shared current topic", domain.ErrConflict)
+	}
+	if err := s.requireTopicControl(ctx, sess); err != nil {
+		return err
 	}
 	topics, err := s.store.ListTopics(ctx, sess.Room.ID)
 	if err != nil {
@@ -852,6 +852,26 @@ func (s *Service) FinalizeTopic(ctx context.Context, sess Session, topicID, esti
 func requireHost(sess Session) error {
 	if !sess.Participant.IsHost {
 		return fmt.Errorf("%w: only the host can do that", domain.ErrForbidden)
+	}
+	return nil
+}
+
+// requireTopicControl decides who may move the room onto another topic. The
+// host always may; anybody else only once the cards are up, so nobody is
+// dragged off a story the room is still voting on.
+func (s *Service) requireTopicControl(ctx context.Context, sess Session) error {
+	if sess.Participant.IsHost {
+		return nil
+	}
+	if sess.Room.CurrentTopicID == nil {
+		return fmt.Errorf("%w: only the host can open the first topic", domain.ErrForbidden)
+	}
+	current, err := s.store.TopicByID(ctx, sess.Room.ID, *sess.Room.CurrentTopicID)
+	if err != nil {
+		return err
+	}
+	if current.Status != domain.StatusRevealed && current.Status != domain.StatusEstimated {
+		return fmt.Errorf("%w: the cards on this topic are still face down", domain.ErrForbidden)
 	}
 	return nil
 }

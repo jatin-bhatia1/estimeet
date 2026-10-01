@@ -31,6 +31,9 @@ export function SyncBoard({ state, actions }: SyncBoardProps) {
 
   const nameById = new Map(participants.map((p) => [p.id, p.name]))
   const waitingOn = topic.pendingVoters.map((id) => nameById.get(id) ?? 'someone')
+  // Once the cards are up the room is no longer waiting on anybody, so anyone
+  // can move it on rather than only the host.
+  const canSteer = me.isHost || topic.revealed
 
   return (
     <div className="panel space-y-6 p-6">
@@ -59,7 +62,7 @@ export function SyncBoard({ state, actions }: SyncBoardProps) {
           )}
         </div>
 
-        {me.isHost && (
+        {canSteer && (
           <div className="flex shrink-0 gap-2">
             <button
               type="button"

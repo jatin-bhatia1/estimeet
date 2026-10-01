@@ -18,6 +18,8 @@ interface BacklogPanelProps {
 export function BacklogPanel({ state, onFocus, onDelete }: BacklogPanelProps) {
   const { room, me, topics, summary } = state
   const isSync = room.mode === 'sync'
+  // Everyone can pick the next topic once the current one has been revealed.
+  const canSteer = me.isHost || topics.some((t) => t.isCurrent && t.revealed)
 
   return (
     <div className="panel flex min-h-0 flex-col p-4">
@@ -41,7 +43,7 @@ export function BacklogPanel({ state, onFocus, onDelete }: BacklogPanelProps) {
               key={topic.id}
               topic={topic}
               index={index}
-              selectable={isSync && me.isHost}
+              selectable={isSync && canSteer}
               deletable={me.isHost}
               onFocus={() => onFocus(topic.id)}
               onDelete={() => onDelete(topic.id)}

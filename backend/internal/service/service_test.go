@@ -381,6 +381,33 @@ func TestAsyncRoomHasNoCurrentTopic(t *testing.T) {
 	}
 }
 
+// Waiting for the host to click away from a topic everybody has already seen
+// wastes the room's time, so the lock lifts at the reveal.
+func TestPlayerMovesOnOnceTheCardsAreUp(t *testing.T) {
+	svc := newService(t)
+	host := newRoom(t, svc, domain.ModeSync)
+	topics := addTopics(t, svc, host, "One", "Two")
+	host = reload(t, svc, host)
+
+	player := join(t, svc, host.Room.Code, "Linus", false)
+	player = reload(t, svc, player)
+
+	if err := svc.SetCurrentTopic(context.Background(), player, topics[1].ID); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("err = %v, want ErrForbidden while the cards are face down", err)
+	}
+
+	if err := svc.RevealTopic(context.Background(), host, topics[0].ID); err != nil {
+		t.Fatalf("reveal: %v", err)
+	}
+	if err := svc.SetCurrentTopic(context.Background(), player, topics[1].ID); err != nil {
+		t.Fatalf("a player should be able to move on after the reveal: %v", err)
+	}
+	player = reload(t, svc, player)
+	if player.Room.CurrentTopicID == nil || *player.Room.CurrentTopicID != topics[1].ID {
+		t.Fatalf("current topic did not move to the second topic")
+	}
+}
+
 func TestAuthenticateRejectsUnknownToken(t *testing.T) {
 	svc := newService(t)
 	newRoom(t, svc, domain.ModeSync)
