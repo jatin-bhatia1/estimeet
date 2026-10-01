@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { api } from './api'
 import { socketUrl } from './origin'
 import type { RoomState } from './types'
 
@@ -18,6 +19,7 @@ interface SocketMessage {
 
 const MAX_BACKOFF_MS = 15_000
 const KEEPALIVE_MS = 30_000
+const POLL_MS = 5_000
 
 /**
  * useRoomSocket keeps a live room snapshot. The server pushes a fresh,
@@ -76,9 +78,12 @@ export function useRoomSocket(code: string, token: string | null) {
 
       socket.onerror = () => socket.close()
 
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         window.clearInterval(keepAliveTimer)
         if (disposed) return
+        // A handshake a proxy refused closes with 1006 and no reason, which is
+        // the only clue anyone gets that the upgrade never reached the server.
+        console.warn(`estimeet: live connection closed (code ${event.code}${event.reason ? `, ${event.reason}` : ''})`)
         attempt += 1
         setStatus(attempt > 4 ? 'offline' : 'reconnecting')
         const delay = Math.min(500 * 2 ** attempt, MAX_BACKOFF_MS)
@@ -96,6 +101,20 @@ export function useRoomSocket(code: string, token: string | null) {
       socketRef.current = null
     }
   }, [code, token])
+
+  // Some corporate proxies refuse the upgrade outright, and a board that only
+  // changes when somebody reloads is worse than a slow one: poll while the
+  // socket is down.
+  useEffect(() => {
+    if (!token || status === 'connecting' || status === 'open') return
+    const timer = window.setInterval(() => {
+      void api
+        .state(code, token)
+        .then(setState)
+        .catch(() => undefined)
+    }, POLL_MS)
+    return () => window.clearInterval(timer)
+  }, [code, token, status])
 
   return { state, status, lastEvent, applyState }
 }

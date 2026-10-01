@@ -4,11 +4,19 @@ import { DeckPicker } from './DeckPicker'
 import type { ConnectionStatus } from '../lib/useRoomSocket'
 import type { RoomState } from '../lib/types'
 
-const STATUS_LABEL: Record<ConnectionStatus, { text: string; dot: string }> = {
-  connecting: { text: 'Connecting', dot: 'bg-amber-400 animate-pulse' },
-  open: { text: 'Live', dot: 'bg-emerald-400' },
-  reconnecting: { text: 'Reconnecting', dot: 'bg-amber-400 animate-pulse' },
-  offline: { text: 'Offline', dot: 'bg-rose-400' },
+const STATUS_LABEL: Record<ConnectionStatus, { text: string; dot: string; hint: string }> = {
+  connecting: { text: 'Connecting', dot: 'bg-amber-400 animate-pulse', hint: 'Opening the live connection to the session.' },
+  open: { text: 'Live', dot: 'bg-emerald-400', hint: 'Changes from everyone else arrive the moment they happen.' },
+  reconnecting: {
+    text: 'Reconnecting',
+    dot: 'bg-amber-400 animate-pulse',
+    hint: 'The live connection dropped. The board refreshes every few seconds until it is back.',
+  },
+  offline: {
+    text: 'Refreshing every few seconds',
+    dot: 'bg-amber-400',
+    hint: 'The live connection cannot be established, most likely blocked between your browser and the server. Nothing is lost: the board is reloaded on a timer instead.',
+  },
 }
 
 interface RoomHeaderProps {
@@ -100,7 +108,7 @@ export function RoomHeader({ state, status, onUpdateRoom, onSetDeck, onLeave }: 
         </div>
 
         <div className="mt-1.5 flex items-center gap-3 text-xs text-slate-500">
-          <span className="inline-flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1.5" title={STATUS_LABEL[status].hint}>
             <span className={`h-1.5 w-1.5 rounded-full ${STATUS_LABEL[status].dot}`} />
             {STATUS_LABEL[status].text}
           </span>
