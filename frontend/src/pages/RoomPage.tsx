@@ -31,7 +31,7 @@ export default function RoomPage() {
 
   const notify = useCallback((text: string, kind: 'info' | 'error' = 'error') => {
     setNotice({ kind, text })
-    window.setTimeout(() => setNotice(null), 6000)
+    window.setTimeout(() => setNotice(null), kind === 'error' ? 12000 : 6000)
   }, [])
 
   // Surface the outcome of the Jira OAuth redirect, then clean the URL.
@@ -148,10 +148,10 @@ export default function RoomPage() {
         <div
           role="status"
           className={[
-            'mb-4 rounded-xl border px-4 py-3 text-sm',
+            'fixed inset-x-4 top-4 z-50 mx-auto max-w-xl rounded-xl border px-4 py-3 text-sm shadow-lg backdrop-blur',
             notice.kind === 'error'
-              ? 'border-rose-500/30 bg-rose-500/10 text-rose-200'
-              : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
+              ? 'border-rose-500/30 bg-rose-950/90 text-rose-200'
+              : 'border-emerald-500/30 bg-emerald-950/90 text-emerald-200',
           ].join(' ')}
         >
           {notice.text}

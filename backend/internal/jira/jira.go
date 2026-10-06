@@ -388,9 +388,11 @@ var ErrInvalidIssueKey = errors.New("jira: not an issue key")
 // older company-managed projects call it.
 var storyPointNames = []string{"story point estimate", "story points"}
 
-// StoryPointsField finds the id of the custom field a site keeps story points
-// in. The id differs from one Jira site to the next, so it cannot be hard-coded.
-func (c *Client) StoryPointsField(ctx context.Context, auth Auth) (string, error) {
+// StoryPointsField finds the id of the custom field story points go in for one
+// issue. The id differs from site to site, and a site can carry two fields with
+// these names (the board's "Story point estimate" and an older "Story Points"),
+// of which only the one on the issue's edit screen can be written.
+func (c *Client) StoryPointsField(ctx context.Context, auth Auth, issueKey string) (string, error) {
 	raw, err := c.get(ctx, auth.BaseURL+"/rest/api/3/field", auth.Header)
 	if err != nil {
 		return "", err
@@ -405,11 +407,32 @@ func (c *Client) StoryPointsField(ctx context.Context, auth Auth) (string, error
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return "", fmt.Errorf("decode fields: %w", err)
 	}
+	var candidates []string
 	for _, want := range storyPointNames {
 		for _, f := range fields {
 			if f.Schema.Type == "number" && strings.EqualFold(strings.TrimSpace(f.Name), want) {
-				return f.ID, nil
+				candidates = append(candidates, f.ID)
 			}
+		}
+	}
+	if len(candidates) == 0 {
+		return "", ErrNoStoryPointsField
+	}
+
+	metaRaw, err := c.get(ctx, auth.BaseURL+"/rest/api/3/issue/"+url.PathEscape(issueKey)+"/editmeta", auth.Header)
+	if err != nil {
+		// Without the edit screen there is nothing to choose by; the write reports any problem.
+		return candidates[0], nil
+	}
+	var meta struct {
+		Fields map[string]json.RawMessage `json:"fields"`
+	}
+	if err := json.Unmarshal(metaRaw, &meta); err != nil {
+		return candidates[0], nil
+	}
+	for _, id := range candidates {
+		if _, ok := meta.Fields[id]; ok {
+			return id, nil
 		}
 	}
 	return "", ErrNoStoryPointsField
@@ -421,7 +444,7 @@ func (c *Client) SetStoryPoints(ctx context.Context, auth Auth, issueKey string,
 	if !issueKeyPattern.MatchString(issueKey) {
 		return ErrInvalidIssueKey
 	}
-	field, err := c.StoryPointsField(ctx, auth)
+	field, err := c.StoryPointsField(ctx, auth, issueKey)
 	if err != nil {
 		return err
 	}
