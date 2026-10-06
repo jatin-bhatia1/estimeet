@@ -34,3 +34,17 @@ func TestDatabaseURLEmptyWithoutHost(t *testing.T) {
 		t.Fatalf("databaseURL() = %q, want empty", got)
 	}
 }
+
+// A canvas wants a value for every variable in every stage, so "sqlite" has to
+// keep a stage on the file even when the other parts hold placeholders.
+func TestDatabaseURLSqlitePlaceholderKeepsTheFile(t *testing.T) {
+	for _, host := range []string{"sqlite", "SQLite", " sqlite "} {
+		t.Setenv("ESTIMEET_DB_HOST", host)
+		t.Setenv("ESTIMEET_DB_USER", "unused")
+		t.Setenv("ESTIMEET_DB_PASSWORD", "unused")
+
+		if got := databaseURL(); got != "" {
+			t.Fatalf("host %q: databaseURL() = %q, want empty", host, got)
+		}
+	}
+}

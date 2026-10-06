@@ -117,6 +117,10 @@ func (c Config) DataSource() string {
 	return c.DBPath
 }
 
+// sqliteHost is the placeholder for stages that keep SQLite: a deployment canvas
+// asks for a value in every stage, and a parameter store cannot hold an empty one.
+const sqliteHost = "sqlite"
+
 // databaseURL resolves the PostgreSQL DSN. ESTIMEET_DB_URL wins; otherwise one
 // is built from the parts, because managed platforms hand the host, database
 // and credentials over as separate variables, and stitching them into a URL by
@@ -127,7 +131,7 @@ func databaseURL() string {
 		return u
 	}
 	host := env("ESTIMEET_DB_HOST", "")
-	if host == "" {
+	if host == "" || strings.EqualFold(host, sqliteHost) {
 		return ""
 	}
 	u := url.URL{

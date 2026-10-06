@@ -329,7 +329,7 @@ Managed platforms rarely hand over a finished URL, so the parts work too — the
 
 | Variable | Default |
 | --- | --- |
-| `ESTIMEET_DB_HOST` | *(empty — nothing is assembled without it)* |
+| `ESTIMEET_DB_HOST` | *(empty — nothing is assembled without it)*. The value `sqlite` means the same, for platforms that need a value in every stage. |
 | `ESTIMEET_DB_PORT` | `5432` |
 | `ESTIMEET_DB_NAME` | `estimeet` |
 | `ESTIMEET_DB_USER` | *(empty)* |
