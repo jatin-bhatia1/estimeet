@@ -60,6 +60,17 @@ type VoteView struct {
 	Value           string `json:"value"`
 }
 
+// NoteView is one discussion point.
+type NoteView struct {
+	ID              string          `json:"id"`
+	ParticipantID   string          `json:"participantId"`
+	ParticipantName string          `json:"participantName"`
+	Kind            domain.NoteKind `json:"kind"`
+	Body            string          `json:"body"`
+	CreatedAt       time.Time       `json:"createdAt"`
+	Mine            bool            `json:"mine"`
+}
+
 // TopicView is a topic plus everything the current participant is allowed to see.
 type TopicView struct {
 	domain.Topic
@@ -73,6 +84,8 @@ type TopicView struct {
 	Stats         *domain.Stats `json:"stats,omitempty"`
 	IsCurrent     bool          `json:"isCurrent"`
 	CanVote       bool          `json:"canVote"`
+	// Notes are your own until the cards are up, then everybody's.
+	Notes []NoteView `json:"notes"`
 }
 
 // BoardSummary is the headline progress of the session.
@@ -119,6 +132,10 @@ func (s *Service) State(ctx context.Context, roomID, participantID string) (Room
 		return RoomState{}, err
 	}
 	votesByTopic, err := s.store.ListVotesForRoom(ctx, room.ID)
+	if err != nil {
+		return RoomState{}, err
+	}
+	notesByTopic, err := s.store.ListNotesForRoom(ctx, room.ID)
 	if err != nil {
 		return RoomState{}, err
 	}
@@ -175,7 +192,23 @@ func (s *Service) State(ctx context.Context, roomID, participantID string) (Room
 			VotedBy:       make([]string, 0, len(votes)),
 			PendingVoters: []string{},
 			Votes:         []VoteView{},
+			Notes:         []NoteView{},
 			IsCurrent:     room.CurrentTopicID != nil && *room.CurrentTopicID == t.ID,
+		}
+
+		for _, n := range notesByTopic[t.ID] {
+			if !revealed && n.ParticipantID != me.ID {
+				continue
+			}
+			view.Notes = append(view.Notes, NoteView{
+				ID:              n.ID,
+				ParticipantID:   n.ParticipantID,
+				ParticipantName: nameByID[n.ParticipantID],
+				Kind:            n.Kind,
+				Body:            n.Body,
+				CreatedAt:       n.CreatedAt,
+				Mine:            n.ParticipantID == me.ID,
+			})
 		}
 
 		votedSet := make(map[string]bool, len(votes))

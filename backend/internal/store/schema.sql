@@ -55,6 +55,17 @@ CREATE TABLE IF NOT EXISTS votes (
 
 CREATE INDEX IF NOT EXISTS idx_votes_participant ON votes (participant_id);
 
+CREATE TABLE IF NOT EXISTS topic_notes (
+    id             TEXT PRIMARY KEY,
+    topic_id       TEXT NOT NULL REFERENCES topics (id) ON DELETE CASCADE,
+    participant_id TEXT NOT NULL REFERENCES participants (id) ON DELETE CASCADE,
+    kind           TEXT NOT NULL CHECK (kind IN ('question', 'concern', 'suggestion')),
+    body           TEXT NOT NULL,
+    created_at     INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_topic_notes_topic ON topic_notes (topic_id);
+
 -- One tracker connection per room: Jira, Azure Boards or GitHub. Credentials
 -- are encrypted at rest (AES-256-GCM) and are deleted at expires_at, which is
 -- set a short window after connecting rather than when the tracker says so.

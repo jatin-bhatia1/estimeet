@@ -42,7 +42,7 @@ func (p *githubProvider) Describe() Descriptor {
 		Container: "Repository",
 		Group:     "Milestone",
 		Items:     "issues",
-		Scopes:    "A fine-grained token with Issues (Read-only), or a classic token with the repo scope for private repositories.",
+		Scopes:    "A fine-grained token with Issues (Read and write), or a classic token with the repo scope for private repositories.",
 		Fields: []Field{
 			{
 				Name:    "token",
@@ -188,4 +188,55 @@ func (p *githubProvider) Items(ctx context.Context, c Credentials, container, gr
 		})
 	}
 	return out, nil
+}
+
+// githubEstimatePrefix names the labels an estimate is kept in. GitHub issues
+// have no points field of their own, so "estimate: 5" is the portable stand-in.
+const githubEstimatePrefix = "estimate:"
+
+// splitIssueKey cuts an owner/name#number key into its parts before any of them
+// reaches a URL.
+func splitIssueKey(key string) (owner, name string, number int, err error) {
+	repo, num, ok := strings.Cut(strings.TrimSpace(key), "#")
+	if !ok {
+		return "", "", 0, ErrBadKey
+	}
+	owner, name, err = splitRepo(repo)
+	if err != nil {
+		return "", "", 0, ErrBadKey
+	}
+	number, err = strconv.Atoi(num)
+	if err != nil || number <= 0 {
+		return "", "", 0, ErrBadKey
+	}
+	return owner, name, number, nil
+}
+
+// SetEstimate puts an "estimate: <card>" label on the issue and takes off any
+// earlier one, so re-estimating replaces the value instead of stacking labels.
+func (p *githubProvider) SetEstimate(ctx context.Context, c Credentials, key, card string) error {
+	owner, name, number, err := splitIssueKey(key)
+	if err != nil {
+		return err
+	}
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/issues/%d", githubAPI, url.PathEscape(owner), url.PathEscape(name), number)
+
+	var issue struct {
+		Labels []struct {
+			Name string `json:"name"`
+		} `json:"labels"`
+	}
+	if err := fetch(ctx, KindGitHub, "GET", endpoint, p.header(c), nil, &issue); err != nil {
+		return err
+	}
+
+	labels := make([]string, 0, len(issue.Labels)+1)
+	for _, l := range issue.Labels {
+		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(l.Name)), githubEstimatePrefix) {
+			labels = append(labels, l.Name)
+		}
+	}
+	labels = append(labels, githubEstimatePrefix+" "+card)
+
+	return fetch(ctx, KindGitHub, "PATCH", endpoint, p.header(c), map[string][]string{"labels": labels}, nil)
 }

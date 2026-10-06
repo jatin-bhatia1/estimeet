@@ -1,5 +1,8 @@
-import type { ParticipantView, TopicView } from '../lib/types'
+import { useState } from 'react'
+
+import type { NoteKind, ParticipantView, SourceKind, SourceView, TopicView } from '../lib/types'
 import { COFFEE_CARD, cardLabel } from '../lib/types'
+import { DiscussionNotes } from './DiscussionNotes'
 import { PlayingCard } from './PlayingCard'
 
 interface ResultsPanelProps {
@@ -7,12 +10,30 @@ interface ResultsPanelProps {
   deck: string[]
   participants: ParticipantView[]
   isHost: boolean
+  canAddNote: boolean
+  /** The room's tracker connection, if any. */
+  source?: SourceView
   onReset: () => void
   onEstimate: (value: string) => void
+  onPushEstimate: (value: string) => Promise<boolean>
+  onAddNote: (kind: NoteKind, body: string) => Promise<boolean>
+  onDeleteNote: (noteId: string) => void
 }
 
 /** ResultsPanel shows the revealed hand, the statistics and the host's wrap-up controls. */
-export function ResultsPanel({ topic, deck, participants, isHost, onReset, onEstimate }: ResultsPanelProps) {
+export function ResultsPanel({
+  topic,
+  deck,
+  participants,
+  isHost,
+  canAddNote,
+  source,
+  onReset,
+  onEstimate,
+  onPushEstimate,
+  onAddNote,
+  onDeleteNote,
+}: ResultsPanelProps) {
   const stats = topic.stats
   const maxCount = stats?.distribution.reduce((max, entry) => Math.max(max, entry.count), 0) ?? 0
   // The escape cards are answers, not sizes, so they cannot be agreed on.
@@ -74,6 +95,8 @@ export function ResultsPanel({ topic, deck, participants, isHost, onReset, onEst
         </div>
       )}
 
+      <DiscussionNotes topic={topic} isHost={isHost} canAdd={canAddNote} onAdd={onAddNote} onDelete={onDeleteNote} />
+
       {isHost && (
         <div className="panel p-4">
           <p className="label">
@@ -108,6 +131,85 @@ export function ResultsPanel({ topic, deck, participants, isHost, onReset, onEst
           </div>
         </div>
       )}
+
+      {isHost && topic.externalKey && (
+        <SendToTracker topic={topic} agreeable={agreeable} source={source} onPush={onPushEstimate} />
+      )}
+    </div>
+  )
+}
+
+const TRACKER_NAME: Record<SourceKind, string> = { jira: 'Jira', azure: 'Azure DevOps', github: 'GitHub' }
+
+interface SendToTrackerProps {
+  topic: TopicView
+  agreeable: string[]
+  source?: SourceView
+  onPush: (value: string) => Promise<boolean>
+}
+
+/**
+ * SendToTracker writes a card from the deck onto the story the topic was
+ * imported from, and makes it the agreed estimate in the same step.
+ */
+function SendToTracker({ topic, agreeable, source, onPush }: SendToTrackerProps) {
+  const [choice, setChoice] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [sent, setSent] = useState<string | null>(null)
+
+  if (!source) {
+    return (
+      <p className="text-xs text-slate-500">
+        This story came from a tracker. Connect the room again to send estimates back to it.
+      </p>
+    )
+  }
+
+  const name = TRACKER_NAME[source.provider]
+  // Jira and Azure keep the estimate in a number field, so letters cannot go there.
+  const options = source.provider === 'github' ? agreeable : agreeable.filter((card) => !Number.isNaN(Number(card)))
+  const value = choice ?? (topic.finalEstimate && options.includes(topic.finalEstimate) ? topic.finalEstimate : null) ??
+    (topic.stats?.suggested && options.includes(topic.stats.suggested) ? topic.stats.suggested : null) ??
+    options[0] ?? ''
+
+  const send = async () => {
+    if (!value || busy) return
+    setBusy(true)
+    try {
+      setSent((await onPush(value)) ? value : null)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="panel flex flex-wrap items-center gap-3 p-4">
+      <div className="min-w-0 flex-1">
+        <p className="label !mb-0.5">Send to {name}</p>
+        <p className="truncate text-xs text-slate-500">
+          {source.provider === 'github'
+            ? `Sets an "estimate: ${value || '…'}" label on ${topic.externalKey}.`
+            : `Sets the story points of ${topic.externalKey}.`}
+        </p>
+      </div>
+      <select
+        className="field !w-24"
+        value={value}
+        onChange={(e) => {
+          setChoice(e.target.value)
+          setSent(null)
+        }}
+        aria-label={`Estimate to send to ${name}`}
+      >
+        {options.map((card) => (
+          <option key={card} value={card}>
+            {card}
+          </option>
+        ))}
+      </select>
+      <button type="button" className="btn-primary" onClick={() => void send()} disabled={busy || !value}>
+        {busy ? 'Sending…' : sent === value ? `Sent to ${name}` : `Update ${name}`}
+      </button>
     </div>
   )
 }

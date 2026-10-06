@@ -82,6 +82,25 @@ export default function RoomPage() {
       reveal: (topicId) => run(() => api.reveal(roomCode, t, topicId)),
       reset: (topicId) => run(() => api.resetTopic(roomCode, t, topicId)),
       estimate: (topicId, value) => run(() => api.estimate(roomCode, t, topicId, value)),
+      addNote: async (topicId, kind, body) => {
+        try {
+          applyState(await api.addNote(roomCode, t, topicId, kind, body))
+          return true
+        } catch (err) {
+          notify(err instanceof ApiError ? err.message : 'That did not work.')
+          return false
+        }
+      },
+      deleteNote: (topicId, noteId) => run(() => api.deleteNote(roomCode, t, topicId, noteId)),
+      pushEstimate: async (topicId, value) => {
+        try {
+          applyState(await api.pushEstimate(roomCode, t, topicId, value))
+          return true
+        } catch (err) {
+          notify(err instanceof ApiError ? err.message : 'That did not work.')
+          return false
+        }
+      },
       focusTopic: (topicId) => run(() => api.setCurrent(roomCode, t, { topicId })),
       advance: (direction) => run(() => api.setCurrent(roomCode, t, { direction })),
       addTopics: (topics: TopicDraft[]) => run(() => api.addTopics(roomCode, t, topics)),

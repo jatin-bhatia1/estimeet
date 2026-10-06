@@ -6,6 +6,7 @@ package source
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -94,7 +95,8 @@ type Descriptor struct {
 	Fields    []Field `json:"fields"`
 }
 
-// Provider is the read-only slice of a tracker that Estimeet needs.
+// Provider is the slice of a tracker that Estimeet needs: everything it reads
+// to build a backlog, and the one thing it writes back.
 type Provider interface {
 	Describe() Descriptor
 	// Verify checks the credentials and names their owner.
@@ -105,7 +107,20 @@ type Provider interface {
 	Groups(ctx context.Context, c Credentials, container, query string) ([]Item, error)
 	// Items lists the children of a group, ready to become topics.
 	Items(ctx context.Context, c Credentials, container, group string) ([]Item, error)
+	// SetEstimate writes the agreed card onto the item an Item.Key came from.
+	SetEstimate(ctx context.Context, c Credentials, key, card string) error
 }
+
+// ErrBadKey means an item key is not the shape this tracker uses, which is what
+// a topic imported from a different tracker looks like after a reconnect.
+var ErrBadKey = errors.New("the item key does not belong to this tracker")
+
+// ErrNoEstimateField means the tracker has nowhere to put a number for this item.
+var ErrNoEstimateField = errors.New("this item has no story points field to write to")
+
+// ErrNotNumeric means the card is a letter or a symbol and the tracker's
+// estimate field only takes numbers.
+var ErrNotNumeric = errors.New("this tracker stores estimates as numbers")
 
 // Registry is the set of providers this server can use.
 type Registry struct {

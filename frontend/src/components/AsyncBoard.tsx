@@ -4,6 +4,7 @@ import type { RoomActions } from '../lib/actions'
 import type { RoomState, TopicView } from '../lib/types'
 import { cardLabel } from '../lib/types'
 import { Deck } from './PlayingCard'
+import { DiscussionNotes } from './DiscussionNotes'
 import { ResultsPanel } from './ResultsPanel'
 
 type Filter = 'todo' | 'all' | 'done'
@@ -175,8 +176,13 @@ function AsyncTopicCard({ topic, state, actions, participants, deck }: AsyncTopi
           deck={deck}
           participants={participants}
           isHost={me.isHost}
+          canAddNote={!state.room.closed}
+          source={state.room.source}
           onReset={() => void actions.reset(topic.id)}
           onEstimate={(value) => void actions.estimate(topic.id, value)}
+          onPushEstimate={(value) => actions.pushEstimate(topic.id, value)}
+          onAddNote={(kind, body) => actions.addNote(topic.id, kind, body)}
+          onDeleteNote={(noteId) => void actions.deleteNote(topic.id, noteId)}
         />
       ) : me.isObserver ? null : (
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -194,6 +200,17 @@ function AsyncTopicCard({ topic, state, actions, participants, deck }: AsyncTopi
             </button>
           )}
         </div>
+      )}
+
+      {!topic.revealed && (
+        <DiscussionNotes
+          topic={topic}
+          isHost={me.isHost}
+          canAdd={!state.room.closed}
+          compact
+          onAdd={(kind, body) => actions.addNote(topic.id, kind, body)}
+          onDelete={(noteId) => void actions.deleteNote(topic.id, noteId)}
+        />
       )}
     </article>
   )

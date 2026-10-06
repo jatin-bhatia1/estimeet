@@ -833,17 +833,25 @@ func (s *Service) FinalizeTopic(ctx context.Context, sess Session, topicID, esti
 	if topic.Status != domain.StatusRevealed && topic.Status != domain.StatusEstimated {
 		return fmt.Errorf("%w: reveal the cards before agreeing on an estimate", domain.ErrConflict)
 	}
-	if !domain.DeckContains(sess.Room.Deck, estimate) {
+	if err := checkEstimate(sess.Room, estimate); err != nil {
+		return err
+	}
+	if err := s.store.FinalizeTopic(ctx, topic.ID, &estimate); err != nil {
+		return err
+	}
+	s.publish(sess.Room.ID, "topic.estimated", map[string]string{"topicId": topic.ID, "estimate": estimate})
+	return nil
+}
+
+// checkEstimate says whether a card can be the agreed result for the room.
+func checkEstimate(room domain.Room, estimate string) error {
+	if !domain.DeckContains(room.Deck, estimate) {
 		return fmt.Errorf("%w: %q is not a card in this deck", domain.ErrInvalid, estimate)
 	}
 	// The escape cards say "I don't know" and "not now", which is never a result.
 	if estimate == domain.CardUnknown || estimate == domain.CardCoffee {
 		return fmt.Errorf("%w: %q is not an estimate", domain.ErrInvalid, estimate)
 	}
-	if err := s.store.FinalizeTopic(ctx, topic.ID, &estimate); err != nil {
-		return err
-	}
-	s.publish(sess.Room.ID, "topic.estimated", map[string]string{"topicId": topic.ID, "estimate": estimate})
 	return nil
 }
 

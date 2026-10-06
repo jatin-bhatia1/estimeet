@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/jatin-bhatia1/estimeet/backend/internal/domain"
 )
 
 const azureAPIVersion = "7.1"
@@ -71,7 +73,7 @@ func (p *azureProvider) Describe() Descriptor {
 		Container: "Project",
 		Group:     "Epic or feature",
 		Items:     "work items",
-		Scopes:    "A personal access token with Work Items (Read) is enough.",
+		Scopes:    "A personal access token with Work Items (Read & write): read to import, write to send estimates back.",
 		Fields: []Field{
 			{
 				Name:        "account",
@@ -83,7 +85,7 @@ func (p *azureProvider) Describe() Descriptor {
 				Name:    "token",
 				Label:   "Personal access token",
 				Type:    "password",
-				Help:    "It needs the Work Items (Read) scope.",
+				Help:    "It needs the Work Items (Read & write) scope; Read alone can import but not update.",
 				HelpURL: "https://dev.azure.com",
 			},
 		},
@@ -244,6 +246,47 @@ func (p *azureProvider) workItems(ctx context.Context, c Credentials, container 
 		}
 	}
 	return out, nil
+}
+
+// azureEstimateFields are the reference names of the field that holds the size
+// of a work item, one per process template: Agile, Scrum (and Basic), CMMI.
+var azureEstimateFields = []string{
+	"Microsoft.VSTS.Scheduling.StoryPoints",
+	"Microsoft.VSTS.Scheduling.Effort",
+	"Microsoft.VSTS.Scheduling.Size",
+}
+
+// SetEstimate writes the card into the work item's size field. Which field that
+// is depends on the process the project uses, and Azure answers 400 when the
+// item's type does not have the one we tried, so the next one is tried.
+func (p *azureProvider) SetEstimate(ctx context.Context, c Credentials, key, card string) error {
+	points, ok := domain.NumericValue(card)
+	if !ok {
+		return ErrNotNumeric
+	}
+	id, err := strconv.Atoi(strings.TrimPrefix(strings.TrimSpace(key), "AB#"))
+	if err != nil || id <= 0 {
+		return ErrBadKey
+	}
+
+	endpoint := fmt.Sprintf("https://dev.azure.com/%s/_apis/wit/workitems/%d?api-version=%s", p.org(c), id, azureAPIVersion)
+	var lastErr error
+	for _, field := range azureEstimateFields {
+		patch := []map[string]any{{"op": "add", "path": "/fields/" + field, "value": points}}
+		err := fetchAs(ctx, KindAzure, "PATCH", endpoint, p.header(c), "application/json-patch+json", patch, nil)
+		if err == nil {
+			return nil
+		}
+		var srcErr *Error
+		if !errors.As(err, &srcErr) || srcErr.Status != 400 {
+			return err
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return ErrNoEstimateField
+	}
+	return nil
 }
 
 // quoteWIQL renders a WIQL string literal. Doubling the quote is the escape

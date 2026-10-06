@@ -1,4 +1,4 @@
-import type { RoomState } from './types'
+import type { NoteKind, RoomState } from './types'
 
 export interface TopicDraft {
   title: string
@@ -12,6 +12,10 @@ export interface RoomActions {
   reveal(topicId: string): Promise<void>
   reset(topicId: string): Promise<void>
   estimate(topicId: string, value: string): Promise<void>
+  addNote(topicId: string, kind: NoteKind, body: string): Promise<boolean>
+  /** Resolves true once the tracker has accepted the estimate. */
+  pushEstimate(topicId: string, value: string): Promise<boolean>
+  deleteNote(topicId: string, noteId: string): Promise<void>
   focusTopic(topicId: string): Promise<void>
   advance(direction: 'next' | 'prev'): Promise<void>
   addTopics(topics: TopicDraft[]): Promise<void>

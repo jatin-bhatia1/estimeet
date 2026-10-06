@@ -122,6 +122,31 @@ type Topic struct {
 	RevealedAt    *time.Time  `json:"revealedAt,omitempty"`
 }
 
+// NoteKind says what a discussion note is for, so the summary can group them.
+type NoteKind string
+
+const (
+	NoteQuestion   NoteKind = "question"
+	NoteConcern    NoteKind = "concern"
+	NoteSuggestion NoteKind = "suggestion"
+)
+
+// Valid reports whether the kind is one of the supported values.
+func (k NoteKind) Valid() bool {
+	return k == NoteQuestion || k == NoteConcern || k == NoteSuggestion
+}
+
+// TopicNote is a question, concern or suggestion a participant raised while a
+// topic was being estimated, to be talked through once the cards are up.
+type TopicNote struct {
+	ID            string    `json:"id"`
+	TopicID       string    `json:"topicId"`
+	ParticipantID string    `json:"participantId"`
+	Kind          NoteKind  `json:"kind"`
+	Body          string    `json:"body"`
+	CreatedAt     time.Time `json:"createdAt"`
+}
+
 // Vote is a single card played by a participant on a topic.
 type Vote struct {
 	TopicID       string    `json:"topicId"`

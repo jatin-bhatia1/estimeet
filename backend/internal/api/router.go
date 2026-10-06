@@ -77,6 +77,9 @@ func NewRouter(cfg config.Config, svc *service.Service) http.Handler {
 			r.Post("/rooms/{code}/topics/{topicId}/reveal", s.handleReveal)
 			r.Post("/rooms/{code}/topics/{topicId}/reset", s.handleResetTopic)
 			r.Post("/rooms/{code}/topics/{topicId}/estimate", s.handleEstimate)
+			r.Post("/rooms/{code}/topics/{topicId}/notes", s.handleAddNote)
+			r.Post("/rooms/{code}/topics/{topicId}/source-estimate", s.handlePushEstimate)
+			r.Delete("/rooms/{code}/topics/{topicId}/notes/{noteId}", s.handleDeleteNote)
 			r.Post("/rooms/{code}/current", s.handleSetCurrent)
 
 			// Jira's OAuth flow is the one connection that is not a pasted token.

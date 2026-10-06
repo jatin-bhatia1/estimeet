@@ -3,6 +3,7 @@ import type {
   AppConfig,
   ImportResult,
   Mode,
+  NoteKind,
   RoomState,
   RoomSummary,
   SessionResponse,
@@ -148,6 +149,27 @@ export const api = {
       method: 'POST',
       token,
       body: { value },
+    }),
+
+  addNote: (code: string, token: string, topicId: string, kind: NoteKind, body: string) =>
+    request<RoomState>(`/rooms/${encodeURIComponent(code)}/topics/${topicId}/notes`, {
+      method: 'POST',
+      token,
+      body: { kind, body },
+    }),
+
+  /** Writes the estimate onto the tracker item the topic was imported from. */
+  pushEstimate: (code: string, token: string, topicId: string, value: string) =>
+    request<RoomState>(`/rooms/${encodeURIComponent(code)}/topics/${topicId}/source-estimate`, {
+      method: 'POST',
+      token,
+      body: { value },
+    }),
+
+  deleteNote: (code: string, token: string, topicId: string, noteId: string) =>
+    request<RoomState>(`/rooms/${encodeURIComponent(code)}/topics/${topicId}/notes/${noteId}`, {
+      method: 'DELETE',
+      token,
     }),
 
   setCurrent: (code: string, token: string, body: { topicId?: string; direction?: 'next' | 'prev' }) =>

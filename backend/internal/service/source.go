@@ -292,6 +292,67 @@ func (s *Service) ImportSourceItems(ctx context.Context, sess Session, container
 	return result, nil
 }
 
+// ------------------------------------------------------------------- write back
+
+// PushEstimate sends the chosen card to the tracker item the topic was imported
+// from and records it as the agreed estimate (host only). The tracker is written
+// first, so a refusal leaves the room exactly as it was.
+func (s *Service) PushEstimate(ctx context.Context, sess Session, topicID, estimate string) error {
+	if err := requireHost(sess); err != nil {
+		return err
+	}
+	topic, err := s.store.TopicByID(ctx, sess.Room.ID, topicID)
+	if err != nil {
+		return err
+	}
+	if topic.ExternalKey == nil {
+		return fmt.Errorf("%w: this topic was typed in by hand, so there is nothing in a tracker to update", domain.ErrConflict)
+	}
+	if topic.Status != domain.StatusRevealed && topic.Status != domain.StatusEstimated {
+		return fmt.Errorf("%w: reveal the cards before sending an estimate", domain.ErrConflict)
+	}
+	if err := checkEstimate(sess.Room, estimate); err != nil {
+		return err
+	}
+
+	conn, provider, creds, err := s.sourceAccess(ctx, sess.Room.ID)
+	if err != nil {
+		return err
+	}
+	if err := provider.SetEstimate(ctx, creds, *topic.ExternalKey, estimate); err != nil {
+		return writeBackError(source.Kind(conn.Provider), *topic.ExternalKey, estimate, err)
+	}
+
+	if err := s.store.FinalizeTopic(ctx, topic.ID, &estimate); err != nil {
+		return err
+	}
+	s.publish(sess.Room.ID, "topic.estimated", map[string]string{"topicId": topic.ID, "estimate": estimate})
+	return nil
+}
+
+// writeBackHint is what to change when a tracker refuses an edit, per tracker,
+// because the fix is different in each.
+var writeBackHint = map[source.Kind]string{
+	source.KindJira:   "check that your account may edit issues in that project, and if you connected with Atlassian, disconnect and connect again so the new permission is granted",
+	source.KindAzure:  "the personal access token needs the Work Items (Read & write) scope",
+	source.KindGitHub: "the token needs write access to issues on that repository",
+}
+
+func writeBackError(kind source.Kind, key, estimate string, err error) error {
+	var srcErr *source.Error
+	switch {
+	case errors.Is(err, source.ErrBadKey):
+		return fmt.Errorf("%w: %s is not a %s item, so it cannot be updated from the tracker this room is connected to now", domain.ErrConflict, key, kind)
+	case errors.Is(err, source.ErrNoEstimateField):
+		return fmt.Errorf("%w: %s has no story points field to write to; add one to its screen or work item type", domain.ErrConflict, key)
+	case errors.Is(err, source.ErrNotNumeric):
+		return fmt.Errorf("%w: %s stores estimates as numbers, and %q is not one", domain.ErrInvalid, kind, estimate)
+	case errors.As(err, &srcErr) && srcErr.Unauthorized():
+		return fmt.Errorf("%w: %s would not let this connection edit %s: %s", domain.ErrForbidden, kind, key, writeBackHint[kind])
+	}
+	return err
+}
+
 // ------------------------------------------------------------------- access
 
 // sourceAccess resolves a room's connection into ready-to-use credentials,

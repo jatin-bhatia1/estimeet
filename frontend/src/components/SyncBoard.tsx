@@ -1,6 +1,7 @@
 import type { RoomActions } from '../lib/actions'
 import type { RoomState } from '../lib/types'
 import { Deck } from './PlayingCard'
+import { DiscussionNotes } from './DiscussionNotes'
 import { ResultsPanel } from './ResultsPanel'
 
 interface SyncBoardProps {
@@ -94,8 +95,13 @@ export function SyncBoard({ state, actions }: SyncBoardProps) {
           deck={room.deck}
           participants={participants}
           isHost={me.isHost}
+          canAddNote={!room.closed}
+          source={room.source}
           onReset={() => void actions.reset(topic.id)}
           onEstimate={(value) => void actions.estimate(topic.id, value)}
+          onPushEstimate={(value) => actions.pushEstimate(topic.id, value)}
+          onAddNote={(kind, body) => actions.addNote(topic.id, kind, body)}
+          onDeleteNote={(noteId) => void actions.deleteNote(topic.id, noteId)}
         />
       ) : (
         <div className="space-y-5">
@@ -113,6 +119,14 @@ export function SyncBoard({ state, actions }: SyncBoardProps) {
               onClear={() => void actions.clearVote(topic.id)}
             />
           )}
+
+          <DiscussionNotes
+            topic={topic}
+            isHost={me.isHost}
+            canAdd={!room.closed}
+            onAdd={(kind, body) => actions.addNote(topic.id, kind, body)}
+            onDelete={(noteId) => void actions.deleteNote(topic.id, noteId)}
+          />
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/5 pt-4">
             <p className="text-sm text-slate-400">

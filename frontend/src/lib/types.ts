@@ -65,6 +65,19 @@ export interface Stats {
   distribution: DistributionEntry[]
 }
 
+export type NoteKind = 'question' | 'concern' | 'suggestion'
+
+/** A point to talk through once the cards are up. */
+export interface NoteView {
+  id: string
+  participantId: string
+  participantName: string
+  kind: NoteKind
+  body: string
+  createdAt: string
+  mine: boolean
+}
+
 export interface TopicView {
   id: string
   title: string
@@ -84,6 +97,8 @@ export interface TopicView {
   stats?: Stats
   isCurrent: boolean
   canVote: boolean
+  /** Your own notes until the cards are up, then everybody's. */
+  notes: NoteView[]
 }
 
 export interface BoardSummary {

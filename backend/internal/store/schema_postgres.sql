@@ -60,6 +60,17 @@ CREATE TABLE IF NOT EXISTS votes (
 
 CREATE INDEX IF NOT EXISTS idx_votes_participant ON votes (participant_id);
 
+CREATE TABLE IF NOT EXISTS topic_notes (
+    id             TEXT PRIMARY KEY,
+    topic_id       TEXT NOT NULL REFERENCES topics (id) ON DELETE CASCADE,
+    participant_id TEXT NOT NULL REFERENCES participants (id) ON DELETE CASCADE,
+    kind           TEXT NOT NULL CHECK (kind IN ('question', 'concern', 'suggestion')),
+    body           TEXT NOT NULL,
+    created_at     BIGINT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_topic_notes_topic ON topic_notes (topic_id);
+
 CREATE TABLE IF NOT EXISTS source_connections (
     room_id          TEXT PRIMARY KEY REFERENCES rooms (id) ON DELETE CASCADE,
     provider         TEXT NOT NULL CHECK (provider IN ('jira', 'azure', 'github')),

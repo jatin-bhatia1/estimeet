@@ -530,7 +530,8 @@ Alternatively, an operator can register an **OAuth 2.0 (3LO)** app so hosts appr
 Atlassian login instead of pasting a token:
 
 1. Create the app at <https://developer.atlassian.com/console/myapps/>.
-2. Add the **Jira API** permission with scopes `read:jira-work`, `read:jira-user` and `offline_access`.
+2. Add the **Jira API** permission with scopes `read:jira-work`, `write:jira-work`, `read:jira-user` and
+   `offline_access`. `write:jira-work` is what lets **Send to Jira** set the story points.
 3. Set the callback URL — local `http://localhost:8090/api/jira/callback`, production
    `https://estimeet.app/api/jira/callback`.
 4. Export `JIRA_CLIENT_ID`, `JIRA_CLIENT_SECRET` and `JIRA_REDIRECT_URI`, then restart the API.
@@ -540,8 +541,8 @@ value is single-use.
 
 ### Azure DevOps
 
-1. Create a personal access token with **Work Items (Read)** at
-   `https://dev.azure.com/{organisation}/_usersSettings/tokens`.
+1. Create a personal access token with **Work Items (Read & write)** at
+   `https://dev.azure.com/{organisation}/_usersSettings/tokens`. Read alone imports but cannot update.
 2. Give Estimeet the organisation — either the bare name, or the `https://dev.azure.com/...` URL you
    copied from the browser.
 
@@ -556,6 +557,21 @@ Every source inherits the permissions of the account behind the token, so an imp
 that person can see. The host-supplied parts of a URL are validated before any request leaves the
 process: only `*.atlassian.net`, `dev.azure.com`/`*.visualstudio.com` organisation names and plain
 `owner/name` repositories are accepted.
+
+### Sending estimates back
+
+On a revealed topic that was imported from a tracker, the host gets **Send to Jira / Azure DevOps /
+GitHub**: pick a card from the deck and the tracker is updated, and the card becomes the agreed
+estimate in the same step. The tracker is written first, so a refusal changes nothing in the room.
+
+| Tracker | What is written |
+| --- | --- |
+| Jira | The site's own story points field (`Story point estimate`, else `Story Points`; found through `/rest/api/3/field`, since its id differs per site). It has to be on the issue's edit screen. |
+| Azure DevOps | `Microsoft.VSTS.Scheduling.StoryPoints`, falling back to `Effort` and then `Size`, which is how the Agile, Scrum/Basic and CMMI processes name it. |
+| GitHub | Issues have no points field, so an `estimate: <card>` label is set and any earlier `estimate:` label is removed. |
+
+Jira and Azure store a number, so a deck of letters can be used for voting but only its numeric cards
+can be sent. The room's tracker credentials are the host's, which is why only the host sees the button.
 
 ## How the rules work
 

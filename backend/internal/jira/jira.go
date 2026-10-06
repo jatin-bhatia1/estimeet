@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -25,8 +26,9 @@ const (
 	resourcesEndpoint = "https://api.atlassian.com/oauth/token/accessible-resources"
 	apiBase           = "https://api.atlassian.com/ex/jira"
 
-	// read:jira-work covers issue search; offline_access yields a refresh token.
-	scopes = "read:jira-work read:jira-user offline_access"
+	// read:jira-work covers issue search and write:jira-work lets the agreed
+	// estimate go back onto the issue; offline_access yields a refresh token.
+	scopes = "read:jira-work write:jira-work read:jira-user offline_access"
 
 	maxResponseBytes = 8 << 20 // 8 MiB guard against hostile/huge responses
 )
@@ -375,6 +377,72 @@ func (c *Client) get(ctx context.Context, endpoint, authHeader string) ([]byte, 
 	return c.do(req)
 }
 
+// ErrNoStoryPointsField is returned when a site has no numeric story points field.
+var ErrNoStoryPointsField = errors.New("jira: this site has no story points field")
+
+// ErrInvalidIssueKey is returned for anything that is not a PROJ-123 key.
+var ErrInvalidIssueKey = errors.New("jira: not an issue key")
+
+// storyPointNames are the two names Jira Cloud gives the field, in the order to
+// prefer them: the first is what current projects ship with, the second is what
+// older company-managed projects call it.
+var storyPointNames = []string{"story point estimate", "story points"}
+
+// StoryPointsField finds the id of the custom field a site keeps story points
+// in. The id differs from one Jira site to the next, so it cannot be hard-coded.
+func (c *Client) StoryPointsField(ctx context.Context, auth Auth) (string, error) {
+	raw, err := c.get(ctx, auth.BaseURL+"/rest/api/3/field", auth.Header)
+	if err != nil {
+		return "", err
+	}
+	var fields []struct {
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		Schema struct {
+			Type string `json:"type"`
+		} `json:"schema"`
+	}
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return "", fmt.Errorf("decode fields: %w", err)
+	}
+	for _, want := range storyPointNames {
+		for _, f := range fields {
+			if f.Schema.Type == "number" && strings.EqualFold(strings.TrimSpace(f.Name), want) {
+				return f.ID, nil
+			}
+		}
+	}
+	return "", ErrNoStoryPointsField
+}
+
+// SetStoryPoints writes the story points of one issue.
+func (c *Client) SetStoryPoints(ctx context.Context, auth Auth, issueKey string, points float64) error {
+	// The key goes straight into a URL path, so only the real shape gets through.
+	if !issueKeyPattern.MatchString(issueKey) {
+		return ErrInvalidIssueKey
+	}
+	field, err := c.StoryPointsField(ctx, auth)
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(map[string]any{"fields": map[string]any{field: points}})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut,
+		auth.BaseURL+"/rest/api/3/issue/"+url.PathEscape(issueKey), bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", auth.Header)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	_, err = c.do(req)
+	return err
+}
+
+var issueKeyPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*-[0-9]+$`)
+
 func (c *Client) do(req *http.Request) ([]byte, error) {
 	res, err := c.http.Do(req)
 	if err != nil {
@@ -413,13 +481,18 @@ func (e *APIError) Unauthorized() bool {
 
 func summarize(body []byte) string {
 	var parsed struct {
-		ErrorMessages []string `json:"errorMessages"`
-		Error         string   `json:"error"`
-		Message       string   `json:"message"`
+		ErrorMessages []string          `json:"errorMessages"`
+		Errors        map[string]string `json:"errors"`
+		Error         string            `json:"error"`
+		Message       string            `json:"message"`
 	}
 	if err := json.Unmarshal(body, &parsed); err == nil {
 		if len(parsed.ErrorMessages) > 0 {
 			return strings.Join(parsed.ErrorMessages, "; ")
+		}
+		// Field-level failures, such as a field that is not on the edit screen.
+		for _, msg := range parsed.Errors {
+			return msg
 		}
 		if parsed.Message != "" {
 			return parsed.Message

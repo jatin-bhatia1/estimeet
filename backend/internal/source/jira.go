@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/jatin-bhatia1/estimeet/backend/internal/domain"
 	"github.com/jatin-bhatia1/estimeet/backend/internal/jira"
 )
 
@@ -21,7 +22,7 @@ func (p *jiraProvider) Describe() Descriptor {
 		Container: "Project",
 		Group:     "Epic",
 		Items:     "stories",
-		Scopes:    "The token inherits your own Jira permissions; read access to the projects you estimate is enough.",
+		Scopes:    "The token inherits your own Jira permissions: browse access to import, and permission to edit issues to write story points back.",
 		Fields: []Field{
 			{
 				Name:        "baseUrl",
@@ -104,7 +105,26 @@ func (p *jiraProvider) convert(c Credentials, issues []jira.Issue) []Item {
 	return out
 }
 
+// SetEstimate writes the card into the issue's story points field.
+func (p *jiraProvider) SetEstimate(ctx context.Context, c Credentials, key, card string) error {
+	points, ok := domain.NumericValue(card)
+	if !ok {
+		return ErrNotNumeric
+	}
+	err := p.client.SetStoryPoints(ctx, p.auth(c), key, points)
+	switch {
+	case errors.Is(err, jira.ErrInvalidIssueKey):
+		return ErrBadKey
+	case errors.Is(err, jira.ErrNoStoryPointsField):
+		return ErrNoEstimateField
+	}
+	return wrapJira(err)
+}
+
 func wrapJira(err error) error {
+	if err == nil {
+		return nil
+	}
 	var apiErr *jira.APIError
 	if errors.As(err, &apiErr) {
 		return &Error{Kind: KindJira, Status: apiErr.StatusCode, Detail: apiErr.Detail}

@@ -20,6 +20,12 @@ var client = &http.Client{Timeout: 20 * time.Second}
 // fetch runs one JSON request against a tracker and decodes it into out.
 // method is GET unless a body is supplied.
 func fetch(ctx context.Context, kind Kind, method, endpoint, authHeader string, body, out any) error {
+	return fetchAs(ctx, kind, method, endpoint, authHeader, "application/json", body, out)
+}
+
+// fetchAs is fetch for the endpoints that insist on their own media type, such
+// as Azure DevOps' application/json-patch+json.
+func fetchAs(ctx context.Context, kind Kind, method, endpoint, authHeader, contentType string, body, out any) error {
 	var reader io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
@@ -39,7 +45,7 @@ func fetch(ctx context.Context, kind Kind, method, endpoint, authHeader string, 
 	// in every tracker's audit log.
 	req.Header.Set("User-Agent", "estimeet")
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", contentType)
 	}
 
 	res, err := client.Do(req)
